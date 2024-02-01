@@ -16,7 +16,8 @@ fn main() {
     let cli: Cli = Cli::parse();
     let file: String = std::fs::read_to_string(cli.file).unwrap(); // This is a temp solution
     let ast: rustpython_parser::ast::Mod = parse(&file).unwrap();
-    let mut type_checker = TypeChecker::new();
+    // println!("{:#?}", ast);
+    // let mut type_checker = TypeChecker::new();
 
-    type_checker.visit_mod(&ast);
+    TypeChecker.visit_mod(&ast);
 }

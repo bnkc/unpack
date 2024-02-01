@@ -1,24 +1,20 @@
 use rustpython_parser::ast;
 
 trait Visitor {
-    fn visit(&mut self, node: &ast::Expr);
+    fn visit_expr(&mut self, node: &ast::Expr);
     fn visit_binop(&mut self, node: &ast::ExprBinOp);
+    fn visit_fn(&mut self, node: &ast::StmtFunctionDef);
     // ... other visit methods for different node types
 }
 
 pub struct TypeChecker;
 
 impl TypeChecker {
-    pub fn new() -> Self {
-        Self
-    }
-
     pub fn visit_mod(&mut self, module: &ast::Mod) {
         if let ast::Mod::Module(stmts) = module {
             for stmt in stmts.body.iter() {
                 self.visit_stmt(stmt);
             }
-            // ... handle other module types.. Probably not needed anytime soon
         } else {
             unimplemented!("Module type not implemented....YET!");
         }
@@ -26,10 +22,8 @@ impl TypeChecker {
 
     fn visit_stmt(&mut self, stmt: &ast::Stmt) {
         match stmt {
-            ast::Stmt::Expr(expr) => self.visit(&expr.value),
-            ast::Stmt::Assign(assign) => {
-                self.visit(&assign.value);
-            }
+            ast::Stmt::Assign(assign) => self.visit_expr(&assign.value),
+            ast::Stmt::FunctionDef(func) => self.visit_fn(&func),
             // ... handle other statement types
             _ => (),
         }
@@ -48,7 +42,12 @@ impl TypeChecker {
 }
 
 impl Visitor for TypeChecker {
-    fn visit(&mut self, node: &ast::Expr) {
+    fn visit_fn(&mut self, node: &ast::StmtFunctionDef) {
+        let return_type = &node.returns;
+        println!("{:#?}", return_type)
+    }
+
+    fn visit_expr(&mut self, node: &ast::Expr) {
         match node {
             ast::Expr::BinOp(binop) => self.visit_binop(binop),
             _ => unimplemented!("Expression {:#?} not implemented....YET!", node),

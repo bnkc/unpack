@@ -1,1 +1,2 @@
-test = 1 + "1"
+def test() -> str:
+    return 3
