@@ -5,6 +5,8 @@ from typing import (
     Tuple,
 )
 
+import ast
+
 
 @no_type_check
 def foo(bar: str) -> None:
