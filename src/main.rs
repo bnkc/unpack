@@ -1,7 +1,7 @@
-mod analysis;
+mod analyze;
 mod ast;
 
-use analysis::TypeChecker;
+use analyze::TypeChecker;
 use ast::parse;
 use clap::Parser;
 
