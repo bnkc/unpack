@@ -43,8 +43,14 @@ impl TypeChecker {
 
 impl Visitor for TypeChecker {
     fn visit_fn(&mut self, node: &ast::StmtFunctionDef) {
-        let return_type = &node.returns;
-        println!("{:#?}", return_type)
+        if let Some(returns) = &node.returns {
+            match &**returns {
+                ast::Expr::Name(name) => {
+                    println!("Return type: {:#?}", name.id);
+                }
+                _ => unimplemented!("Return type not implemented....YET!"),
+            }
+        }
     }
 
     fn visit_expr(&mut self, node: &ast::Expr) {
