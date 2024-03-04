@@ -1,9 +1,5 @@
 use log::error;
-use rustpython_parser::{
-    ast::{self, Identifier},
-    lexer::lex,
-    parse_tokens, Mode,
-};
+use rustpython_parser::{ast, lexer::lex, parse_tokens, Mode};
 use std::collections::HashSet;
 
 // we should move this to utils or to lib or something. this does not belong here
