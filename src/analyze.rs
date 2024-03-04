@@ -16,7 +16,7 @@ impl TypeChecker {
                 self.visit_stmt(stmt);
             }
         } else {
-            unimplemented!("Module type not implemented....YET!");
+            unimplemented!("Visitng MOD broken");
         }
     }
 
@@ -35,6 +35,7 @@ impl TypeChecker {
             ast::Constant::Int(_) => Some("int"),
             ast::Constant::Float(_) => Some("float"),
             ast::Constant::Str(_) => Some("str"),
+            ast::Constant::Bool(_) => Some("bool"),
             // ... handle other constant types
             _ => None,
         }
@@ -43,14 +44,37 @@ impl TypeChecker {
 
 impl Visitor for TypeChecker {
     fn visit_fn(&mut self, node: &ast::StmtFunctionDef) {
+        let mut declared_return_type: Option<&str> = None;
         if let Some(returns) = &node.returns {
-            match &**returns {
-                ast::Expr::Name(name) => {
-                    println!("Return type: {:#?}", name.id);
-                }
+            declared_return_type = Some(match &**returns {
+                ast::Expr::Name(name) => &name.id,
                 _ => unimplemented!("Return type not implemented....YET!"),
-            }
+            });
         }
+        println!("{:#?}", node)
+        // let mut inferred_return_type: Option<&str> = None;
+        // for stmt in node.body.iter() {
+        //     match stmt {
+        //         ast::Stmt::Return(ret) => {
+        //             if let Some(expr) = &ret.value {
+        //                 inferred_return_type = match &**expr {
+        //                     ast::Expr::Constant(c) => self.get_constant_type(c),
+        //                     _ => unimplemented!("Expression type not implemented....YET!"),
+        //                 };
+        //             }
+        //         }
+        //         _ => (),
+        //     }
+        // }
+        // if let (Some(declared), Some(inferred)) = (declared_return_type, inferred_return_type) {
+        //     if declared != inferred {
+        //         eprintln!(
+        //             "Incompatible return value type (got '{}', expected '{}') rustpy(error)
+        //             ",
+        //             inferred, declared
+        //         );
+        //     }
+        // }
     }
 
     fn visit_expr(&mut self, node: &ast::Expr) {
