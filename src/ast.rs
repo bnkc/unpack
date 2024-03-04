@@ -1,6 +1,16 @@
 use log::error;
-use rustpython_parser::{ast, lexer::lex, parse_tokens, Mode};
+use rustpython_parser::{
+    ast::{self, Identifier},
+    lexer::lex,
+    parse_tokens, Mode,
+};
 use std::collections::HashSet;
+
+// we should move this to utils or to lib or something. this does not belong here
+fn extract_first_part_of_import(import: &str) -> ast::Identifier {
+    let first_part = import.split('.').next().unwrap_or(""); // Safely handle cases where there might not be a '.'
+    ast::Identifier::new(first_part.to_string())
+}
 
 fn parse_ast(
     file_content: &str,
@@ -23,14 +33,14 @@ pub(crate) fn get_deps(file_content: &str) -> Vec<ast::Identifier> {
             match stmt {
                 ast::Stmt::Import(import) => {
                     for alias in &import.names {
-                        deps_set.insert(alias.name.clone());
+                        let first_part = extract_first_part_of_import(&alias.name);
+                        deps_set.insert(first_part);
                     }
                 }
                 ast::Stmt::ImportFrom(import) => {
                     if let Some(module) = &import.module {
-                        let parts: Vec<&str> = module.split('.').collect();
-                        // we only care about the first part of the import
-                        deps_set.insert(ast::Identifier::new(parts[0].to_string()));
+                        let first_part = extract_first_part_of_import(&module);
+                        deps_set.insert(first_part);
                     }
                 }
                 _ => {}
