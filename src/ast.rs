@@ -4,7 +4,8 @@ use std::collections::HashSet;
 
 // we should move this to utils or to lib or something. this does not belong here
 fn extract_first_part_of_import(import: &str) -> ast::Identifier {
-    let first_part = import.split('.').next().unwrap_or(""); // Safely handle cases where there might not be a '.'
+    // Safely handle cases where there might not be a '.'
+    let first_part: &str = import.split('.').next().unwrap_or("");
     ast::Identifier::new(first_part.to_string())
 }
 
@@ -22,6 +23,7 @@ pub(crate) fn get_deps(file_content: &str) -> Vec<ast::Identifier> {
             return vec![];
         }
     };
+    println!("{:#?}", ast);
 
     let mut deps_set = HashSet::new();
     if let Some(module) = ast.module() {
@@ -37,6 +39,25 @@ pub(crate) fn get_deps(file_content: &str) -> Vec<ast::Identifier> {
                     if let Some(module) = &import.module {
                         let first_part = extract_first_part_of_import(&module);
                         deps_set.insert(first_part);
+                    }
+                }
+                ast::Stmt::FunctionDef(import) => {
+                    for alias in &import.body {
+                        match alias {
+                            ast::Stmt::Import(import) => {
+                                for alias in &import.names {
+                                    let first_part = extract_first_part_of_import(&alias.name);
+                                    deps_set.insert(first_part);
+                                }
+                            }
+                            ast::Stmt::ImportFrom(import) => {
+                                if let Some(module) = &import.module {
+                                    let first_part = extract_first_part_of_import(&module);
+                                    deps_set.insert(first_part);
+                                }
+                            }
+                            _ => {}
+                        }
                     }
                 }
                 _ => {}
