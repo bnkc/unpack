@@ -1,7 +1,7 @@
 use clap::Parser;
 use log::{error, info};
 
-use ast::{get_deps, parse_ast};
+use ast::get_deps;
 use std::fs;
 
 mod analyze;
@@ -24,15 +24,12 @@ fn setup_logging() {
 fn main() {
     setup_logging();
 
-    // let cli: Cli = Cli::parse();
     info!("Starting the application");
+    let cli: Cli = Cli::parse();
+    let file_content = read_file(&cli.file).unwrap();
+    // let file_content = "from sklearn.data import datasets";
 
-    // let file_content = read_file(&cli.file).unwrap();
-    let file_content = "from sklearn.lev import datasets";
-
-    let ast = parse_ast(&file_content).unwrap();
-    println!("{:#?}", ast);
-    let deps = get_deps(ast);
+    let deps = get_deps(&file_content);
     println!("{:#?}", deps);
 
     // Assuming `analyze::TypeChecker` and `ast::parse` are updated to return `Result`
