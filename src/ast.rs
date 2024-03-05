@@ -4,14 +4,43 @@ use std::fs;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
+// Extracts the first part of an import statement, which is the module name.
+///
+///
+/// # Arguments
+///
+/// * `import` - A reference to the import statement to extract the module name from.
+///
+/// # Returns
+///
+/// An ast::Identifier containing the first part of the import statement.
 fn extract_first_part_of_import(import: &str) -> ast::Identifier {
     import.split('.').next().unwrap_or_default().into()
 }
 
+// Parses the AST of a Python file.
+///
+/// # Arguments
+///
+/// * `file_content` - A reference to the file content to parse.
+///
+/// # Returns
+///
+/// A Result containing the parsed ast::Mod on success, or a ParseError on failure.
 fn parse_ast(file_content: &str) -> Result<ast::Mod, ParseError> {
     parse_tokens(lex(file_content, Mode::Module), Mode::Module, "<embedded>")
 }
 
+// Collects identifiers from import statements in the specified AST.
+///
+/// # Arguments
+///
+/// * `stmts` - A reference to the Vec of ast::Stmt to collect identifiers from.
+/// * `deps_set` - A reference to the HashSet to collect the identifiers into.
+///
+/// # Returns
+///
+/// A Result containing the parsed ast::Mod on success, or a ParseError on failure.
 fn collect_imports(stmts: &[ast::Stmt], deps_set: &mut HashSet<ast::Identifier>) {
     stmts.iter().for_each(|stmt| match stmt {
         ast::Stmt::Import(import) => {
@@ -38,25 +67,22 @@ fn collect_imports(stmts: &[ast::Stmt], deps_set: &mut HashSet<ast::Identifier>)
 ///
 /// # Returns
 ///
-/// A Result containing a Vec of ast::Identifier on success, or an error string on failure.
-pub(crate) fn get_deps(dir: &PathBuf) -> Result<Vec<ast::Identifier>, String> {
-    let walker = WalkDir::new(dir);
+/// A Result containing a Vec of ast::Identifier on success, or an std::io::Error on failure.
+pub(crate) fn get_deps(dir: &PathBuf) -> Result<Vec<ast::Identifier>, std::io::Error> {
+    let walker = WalkDir::new(dir).into_iter();
     let mut deps_set = HashSet::new();
 
-    for entry in walker.into_iter().filter_map(|e| e.ok()) {
+    for entry in walker.filter_map(|e| e.ok()) {
         if entry.file_name().to_string_lossy().ends_with(".py") {
             let file_content = match fs::read_to_string(entry.path()) {
                 Ok(content) => content,
-                Err(_) => return Err(format!("Failed to read file: {:?}", entry.path())),
+                Err(_) => continue,
             };
 
-            match parse_ast(&file_content) {
-                Ok(ast) => {
-                    if let Some(module) = ast.module() {
-                        collect_imports(&module.body, &mut deps_set);
-                    }
+            if let Ok(ast) = parse_ast(&file_content) {
+                if let Some(module) = ast.module() {
+                    collect_imports(&module.body, &mut deps_set);
                 }
-                Err(_) => return Err(format!("Error parsing the file: {:?}", entry.path())),
             }
         }
     }
