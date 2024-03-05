@@ -30,10 +30,12 @@ fn collect_imports(stmts: &[ast::Stmt], deps_set: &mut HashSet<ast::Identifier>)
                 }
             }
             ast::Stmt::FunctionDef(function_def) => {
-                // Recursively collect imports from function definitions
                 collect_imports(&function_def.body, deps_set);
             }
-            _ => {} // Handle other cases as needed
+            // ast::Stmt::FunctionDef(function_def) => {
+            //     collect_imports(&function_def.body, deps_set);
+            // }
+            _ => {}
         }
     }
 }
@@ -46,6 +48,8 @@ pub(crate) fn get_deps(file_content: &str) -> Vec<ast::Identifier> {
             return vec![];
         }
     };
+    let sample_ast = ast.clone();
+    println!("{:#?}", sample_ast.module().unwrap().body);
 
     let mut deps_set = HashSet::new();
     if let Some(modele) = ast.module() {
