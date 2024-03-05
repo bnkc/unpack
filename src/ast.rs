@@ -90,15 +90,36 @@ pub(crate) fn get_deps(dir: &PathBuf) -> Result<Vec<ast::Identifier>, std::io::E
     Ok(deps_set.into_iter().collect())
 }
 
-// // write a unit test
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
+// write a unit test
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-//     #[test]
-//     fn test_parse_ast() {
-//         let file_content = "import numpy as np";
-//         let ast = parse_ast(file_content).unwrap();
-//         // assert_eq!(format!("{:#?}", ast), format!("{:#?}", ""));
-//     }
-// }
+    #[test]
+    fn test_extract_first_part_of_import() {
+        let import = "os.path";
+        let first_part = extract_first_part_of_import(import);
+        assert_eq!(first_part.as_str(), "os");
+
+        let import = "os";
+        let first_part = extract_first_part_of_import(import);
+        assert_eq!(first_part.as_str(), "os");
+
+        let import = "";
+        let first_part = extract_first_part_of_import(import);
+        assert_eq!(first_part.as_str(), "");
+    }
+    #[test]
+    fn test_parse_ast() {}
+    #[test]
+    fn test_collect_imports() {}
+
+    #[test]
+    fn test_get_deps() {
+        // let dir = PathBuf::from("tests/fixtures");
+        // let deps = get_deps(&dir).unwrap();
+        // assert_eq!(deps.len(), 2);
+        // assert_eq!(deps[0].name, "os");
+        // assert_eq!(deps[1].name, "sys");
+    }
+}
