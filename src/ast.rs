@@ -2,9 +2,7 @@ use log::error;
 use rustpython_parser::{ast, lexer::lex, parse_tokens, Mode};
 use std::collections::HashSet;
 
-// we should move this to utils or to lib or something. this does not belong here
 fn extract_first_part_of_import(import: &str) -> ast::Identifier {
-    // Safely handle cases where there might not be a '.'
     let first_part: &str = import.split('.').next().unwrap_or("");
     ast::Identifier::new(first_part.to_string())
 }
@@ -15,6 +13,31 @@ fn parse_ast(
     parse_tokens(lex(file_content, Mode::Module), Mode::Module, "<embedded>")
 }
 
+// Function to recursively collect imports
+fn collect_imports(stmts: &[ast::Stmt], deps_set: &mut HashSet<ast::Identifier>) {
+    for stmt in stmts {
+        match stmt {
+            ast::Stmt::Import(import) => {
+                for alias in &import.names {
+                    let first_part = extract_first_part_of_import(&alias.name);
+                    deps_set.insert(first_part);
+                }
+            }
+            ast::Stmt::ImportFrom(import) => {
+                if let Some(module) = &import.module {
+                    let first_part = extract_first_part_of_import(module);
+                    deps_set.insert(first_part);
+                }
+            }
+            ast::Stmt::FunctionDef(function_def) => {
+                // Recursively collect imports from function definitions
+                collect_imports(&function_def.body, deps_set);
+            }
+            _ => {} // Handle other cases as needed
+        }
+    }
+}
+
 pub(crate) fn get_deps(file_content: &str) -> Vec<ast::Identifier> {
     let ast = match parse_ast(file_content) {
         Ok(ast) => ast,
@@ -23,48 +46,12 @@ pub(crate) fn get_deps(file_content: &str) -> Vec<ast::Identifier> {
             return vec![];
         }
     };
-    println!("{:#?}", ast);
 
     let mut deps_set = HashSet::new();
-    if let Some(module) = ast.module() {
-        for stmt in module.body {
-            match stmt {
-                ast::Stmt::Import(import) => {
-                    for alias in &import.names {
-                        let first_part = extract_first_part_of_import(&alias.name);
-                        deps_set.insert(first_part);
-                    }
-                }
-                ast::Stmt::ImportFrom(import) => {
-                    if let Some(module) = &import.module {
-                        let first_part = extract_first_part_of_import(&module);
-                        deps_set.insert(first_part);
-                    }
-                }
-                ast::Stmt::FunctionDef(import) => {
-                    for alias in &import.body {
-                        match alias {
-                            ast::Stmt::Import(import) => {
-                                for alias in &import.names {
-                                    let first_part = extract_first_part_of_import(&alias.name);
-                                    deps_set.insert(first_part);
-                                }
-                            }
-                            ast::Stmt::ImportFrom(import) => {
-                                if let Some(module) = &import.module {
-                                    let first_part = extract_first_part_of_import(&module);
-                                    deps_set.insert(first_part);
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
+    if let Some(modele) = ast.module() {
+        collect_imports(&modele.body, &mut deps_set);
     }
-    // Convert HashSet back into Vec
+
     deps_set.into_iter().collect()
 }
 
