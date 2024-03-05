@@ -1,5 +1,8 @@
 use rustpython_parser::{ast, lexer::lex, parse_tokens, Mode, ParseError};
 use std::collections::HashSet;
+use std::fs;
+use std::path::PathBuf;
+use walkdir::WalkDir;
 
 fn extract_first_part_of_import(import: &str) -> ast::Identifier {
     import.split('.').next().unwrap_or_default().into()
@@ -27,14 +30,38 @@ fn collect_imports(stmts: &[ast::Stmt], deps_set: &mut HashSet<ast::Identifier>)
     });
 }
 
-pub(crate) fn get_deps(file_content: &str) -> Vec<ast::Identifier> {
-    let ast = parse_ast(file_content).expect("Error parsing the file");
-
+// Attempts to read and parse Python files in the specified directory, collecting identifiers from import statements.
+///
+/// # Arguments
+///
+/// * `dir` - A reference to the PathBuf for the directory to search within.
+///
+/// # Returns
+///
+/// A Result containing a Vec of ast::Identifier on success, or an error string on failure.
+pub(crate) fn get_deps(dir: &PathBuf) -> Result<Vec<ast::Identifier>, String> {
+    let walker = WalkDir::new(dir);
     let mut deps_set = HashSet::new();
-    if let Some(modele) = ast.module() {
-        collect_imports(&modele.body, &mut deps_set);
+
+    for entry in walker.into_iter().filter_map(|e| e.ok()) {
+        if entry.file_name().to_string_lossy().ends_with(".py") {
+            let file_content = match fs::read_to_string(entry.path()) {
+                Ok(content) => content,
+                Err(_) => return Err(format!("Failed to read file: {:?}", entry.path())),
+            };
+
+            match parse_ast(&file_content) {
+                Ok(ast) => {
+                    if let Some(module) = ast.module() {
+                        collect_imports(&module.body, &mut deps_set);
+                    }
+                }
+                Err(_) => return Err(format!("Error parsing the file: {:?}", entry.path())),
+            }
+        }
     }
-    deps_set.into_iter().collect()
+
+    Ok(deps_set.into_iter().collect())
 }
 
 // // write a unit test
