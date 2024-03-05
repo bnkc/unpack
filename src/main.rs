@@ -1,17 +1,19 @@
 use clap::Parser;
 use log::{error, info};
+use std::path::PathBuf;
 
 use ast::get_deps;
 use std::fs;
+use walkdir::WalkDir;
 
 mod analyze;
 mod ast;
 
 #[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
-struct Cli {
-    #[clap(short, long, value_parser)]
-    file: String,
+#[clap(author, version, about)]
+pub struct Arguments {
+    #[arg(default_value = ".")]
+    pub path: PathBuf,
 }
 
 fn setup_logging() {
@@ -25,12 +27,13 @@ fn main() {
     setup_logging();
 
     info!("Starting the application");
-    let cli: Cli = Cli::parse();
-    let file_content = read_file(&cli.file).unwrap();
+    let args = Arguments::parse();
+    println!("{:?}", args);
+    // let file_content = read_file(&cli.file).unwrap();
     // let file_content = "from sklearn.data import datasets";
 
-    let deps = get_deps(&file_content);
-    println!("{:#?}", deps);
+    // let deps = get_deps(&file_content);
+    // println!("{:#?}", deps);
 
     // Assuming `analyze::TypeChecker` and `ast::parse` are updated to return `Result`
     // let type_check_result = analyze::TypeChecker::new().check(&ast)?;

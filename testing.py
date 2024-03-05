@@ -13,3 +13,7 @@ def test() -> None:
 class Test:
     def __init__(self) -> None:
         import polars as pl
+
+    def test(self) -> None:
+        def more_testing():
+            import papa
