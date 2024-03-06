@@ -90,7 +90,6 @@ pub(crate) fn get_deps(dir: &PathBuf) -> Result<Vec<ast::Identifier>, std::io::E
     Ok(deps_set.into_iter().collect())
 }
 
-// write a unit test
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,7 +109,34 @@ mod tests {
         assert_eq!(first_part.as_str(), "");
     }
     #[test]
-    fn test_parse_ast() {}
+    fn test_parse_ast() {
+        let file_content = "import os";
+        let ast = parse_ast(file_content);
+        assert!(ast.is_ok());
+
+        let file_content = "import os, sys";
+        let ast = parse_ast(file_content);
+        assert!(ast.is_ok());
+
+        // let's do one where it returns an error
+        let file_content = "import os,";
+        let ast = parse_ast(file_content);
+        // THIS IS IMPORTANT TO KNOW. WHEN A TOP LEVEL IMPORT FAILS, THE WHOLE FILE FAILS
+        assert!(ast.is_err());
+
+        // Let's check the actual parsing
+        let file_content = "import os";
+        let ast = parse_ast(file_content).unwrap();
+
+        assert_eq!(ast.clone().module().unwrap().body.len(), 1);
+
+        let body = &ast.module().unwrap().body;
+        let mut temp_deps_set: HashSet<ast::Identifier> = HashSet::new();
+        collect_imports(body, &mut temp_deps_set);
+
+        assert_eq!(temp_deps_set.len(), 1);
+        assert!(temp_deps_set.contains(&ast::Identifier::new("os")));
+    }
     #[test]
     fn test_collect_imports() {}
 

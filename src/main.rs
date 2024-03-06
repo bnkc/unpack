@@ -7,7 +7,7 @@ mod analyze;
 mod ast;
 
 #[derive(Parser, Debug)]
-#[clap(author, version, about)]
+#[command(author, version, about, long_about = None)]
 pub struct Arguments {
     #[arg(default_value = ".")]
     pub path: PathBuf,
