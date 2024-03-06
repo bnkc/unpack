@@ -1,7 +1,8 @@
 [package]
-author = ["levostatnigrosh@pm.me"]
+authors = ["Lev Ostatnigrosh <levostatnigrosh@pm.me>"]
+categories = ["command-line-utilities"]
 about = "A tool to find unused imports in Python code."
-name = "deps-rs"
+name = "pip-udeps"
 version = "0.1.0"
 edition = "2021"
 
