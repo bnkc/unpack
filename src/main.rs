@@ -1,9 +1,6 @@
-use ast::get_deps;
 use clap::Parser;
+use pip_udeps::get_deps;
 use std::path::PathBuf;
-
-mod analyze;
-mod ast;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
