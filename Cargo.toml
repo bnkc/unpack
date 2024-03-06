@@ -1,9 +1,9 @@
 [package]
-authors = ["Lev Ostatnigrosh <levostatnigrosh@pm.me>"]
-categories = ["command-line-utilities"]
-about = "A tool to find unused imports in Python code."
 name = "pip-udeps"
 version = "0.1.0"
+authors = ["Lev Ostatnigrosh <levostatnigrosh@pm.me>"]
+description = "Find unused dependencies in a Python project"
+categories = ["command-line-utilities"]
 edition = "2021"
 
 [dependencies]
