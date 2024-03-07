@@ -36,32 +36,29 @@ pub fn merge_exitcodes(results: impl IntoIterator<Item = ExitCode>) -> ExitCode 
     ExitCode::Success
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-//     #[test]
-//     fn test_exitcodes() {
-//         assert_eq!(i32::from(ExitCode::Success), 0);
-//         assert_eq!(i32::from(ExitCode::HasResults(true)), 0);
-//         assert_eq!(i32::from(ExitCode::HasResults(false)), 1);
-//         assert_eq!(i32::from(ExitCode::GeneralError), 1);
-//         assert_eq!(i32::from(ExitCode::KilledBySigint), 130);
-//     }
+    #[test]
+    fn success_when_no_results() {
+        assert_eq!(merge_exitcodes([]), ExitCode::Success);
+    }
 
-//     #[test]
-//     fn test_merge_exitcodes() {
-//         assert_eq!(
-//             merge_exitcodes(vec![ExitCode::Success, ExitCode::Success]),
-//             ExitCode::Success
-//         );
-//         assert_eq!(
-//             merge_exitcodes(vec![ExitCode::Success, ExitCode::GeneralError]),
-//             ExitCode::GeneralError
-//         );
-//         assert_eq!(
-//             merge_exitcodes(vec![ExitCode::GeneralError, ExitCode::GeneralError]),
-//             ExitCode::GeneralError
-//         );
-//     }
-// }
+    #[test]
+    fn general_error_when_any_error() {
+        assert_eq!(
+            merge_exitcodes([ExitCode::Success, ExitCode::GeneralError]),
+            ExitCode::GeneralError
+        );
+        assert_eq!(
+            merge_exitcodes([ExitCode::GeneralError, ExitCode::Success]),
+            ExitCode::GeneralError
+        );
+
+        assert_eq!(
+            merge_exitcodes([ExitCode::GeneralError, ExitCode::GeneralError]),
+            ExitCode::GeneralError
+        );
+    }
+}
