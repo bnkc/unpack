@@ -25,6 +25,43 @@ impl ExitCode {
 
     /// Exit the process with the appropriate code.
     pub fn exit(self) -> ! {
-        std::process::exit(i32::from(self))
+        std::process::exit(self.into())
     }
 }
+
+pub fn merge_exitcodes(results: impl IntoIterator<Item = ExitCode>) -> ExitCode {
+    if results.into_iter().any(ExitCode::is_error) {
+        return ExitCode::GeneralError;
+    }
+    ExitCode::Success
+}
+
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+
+//     #[test]
+//     fn test_exitcodes() {
+//         assert_eq!(i32::from(ExitCode::Success), 0);
+//         assert_eq!(i32::from(ExitCode::HasResults(true)), 0);
+//         assert_eq!(i32::from(ExitCode::HasResults(false)), 1);
+//         assert_eq!(i32::from(ExitCode::GeneralError), 1);
+//         assert_eq!(i32::from(ExitCode::KilledBySigint), 130);
+//     }
+
+//     #[test]
+//     fn test_merge_exitcodes() {
+//         assert_eq!(
+//             merge_exitcodes(vec![ExitCode::Success, ExitCode::Success]),
+//             ExitCode::Success
+//         );
+//         assert_eq!(
+//             merge_exitcodes(vec![ExitCode::Success, ExitCode::GeneralError]),
+//             ExitCode::GeneralError
+//         );
+//         assert_eq!(
+//             merge_exitcodes(vec![ExitCode::GeneralError, ExitCode::GeneralError]),
+//             ExitCode::GeneralError
+//         );
+//     }
+// }

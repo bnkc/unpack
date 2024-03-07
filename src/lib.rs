@@ -1,5 +1,5 @@
 mod exit_codes;
-use exit_codes::ExitCode;
+
 use rustpython_parser::{ast, lexer::lex, parse_tokens, Mode, ParseError};
 use std::collections::HashSet;
 use std::fs;
@@ -70,7 +70,7 @@ fn collect_imports(stmts: &[ast::Stmt], deps_set: &mut HashSet<ast::Identifier>)
 /// # Returns
 ///
 /// A Result containing a Vec of ast::Identifier on success, or an std::io::Error on failure.
-pub fn get_deps(dir: &PathBuf) -> Result<Vec<ast::Identifier>, ExitCode> {
+pub fn get_deps(dir: &PathBuf) -> Result<Vec<ast::Identifier>, std::io::Error> {
     let walker = WalkDir::new(dir).into_iter();
     let mut deps_set = HashSet::new();
 
