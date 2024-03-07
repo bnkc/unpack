@@ -5,12 +5,12 @@
 mod exit_codes;
 
 use crate::exit_codes::ExitCode;
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use std::env;
 
 use pip_udeps::get_deps;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 // #[command(version, about, long_about = None)]
@@ -28,58 +28,61 @@ pub struct Opts {
     /// within the root of the path provided, operation will exit.
     #[arg(
         long,
-        short = 'P',
+        short = 'b',
         help = "The path to the directory to search for Python files.",
         default_value = ".",
         long_help
     )]
     #[arg(default_value = ".")]
-    pub base_directory: Option<PathBuf>,
+    pub base_directory: PathBuf,
 }
 
 fn main() {
-    let _result = run();
-    // match result {
-    //     Ok(exit_code) => {
-    //         exit_code.exit();
-    //     }
-    //     Err(err) => {
-    //         eprintln!("[fd error]: {:#}", err);
-    //         ExitCode::GeneralError.exit();
-    //     }
-    // }
+    let result = run();
+    match result {
+        Ok(exit_code) => {
+            exit_code.exit();
+        }
+        Err(err) => {
+            eprintln!("[pip-udeps error]: {:#}", err);
+            ExitCode::GeneralError.exit();
+        }
+    }
 }
 
 fn run() -> Result<ExitCode> {
     let opts = Opts::parse();
 
-    set_working_dir(&opts)?;
+    set_project_dir(&opts)?;
 
     let deps = get_deps(&opts.base_directory);
+
     println!("{:?}", deps);
 
     // this is temporary
     Ok(ExitCode::HasResults(deps?.is_empty()))
 }
 
-fn set_working_dir(opts: &Opts) -> Result<()> {
-    if let Some(ref base_directory) = opts.base_directory {
-        if !base_directory.exists() {
-            return Err(anyhow!("The provided path does not exist."));
-        }
-        if !base_directory.is_dir() {
-            return Err(anyhow!("The provided path is not a directory."));
-        }
-        env::set_current_dir(base_directory).with_context(|| {
-            format!(
-                "Could not set '{}' as the current working directory",
-                base_directory.to_string_lossy()
-            )
-        })?;
+fn set_project_dir(opts: &Opts) -> Result<()> {
+    if !opts.base_directory.exists() {
+        return Err(anyhow!("The provided path does not exist."));
+    } else if !opts.base_directory.is_dir() {
+        return Err(anyhow!("The provided path is not a directory."));
+    } else if !check_for_poetry_toml(&opts.base_directory) {
+        // Here I am going to check if the provided path contains a poetry.toml or requirements.txt in the root
     }
+    env::set_current_dir(&opts.base_directory).with_context(|| {
+        format!(
+            "Could not set '{}' as the current working directory. Please check the path provided.",
+            opts.base_directory.to_string_lossy()
+        )
+    })?;
+
     Ok(())
 }
 
-// fn is_existing_dir(path: &Path) -> bool {
-//     path.is_dir()
-// }
+fn check_for_poetry_toml(_base_directory: &PathBuf) -> bool {
+    // check for poetry.toml in the root of the provided path
+    // this might change in the future.
+    true
+}
