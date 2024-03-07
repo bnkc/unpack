@@ -1,3 +1,10 @@
+// another name could be prune-deps
+// or prune-udeps
+// or prunes-rs
+
+mod exit_codes;
+
+use crate::exit_codes::ExitCode;
 use clap::Parser;
 use pip_udeps::get_deps;
 use std::path::PathBuf;
@@ -9,21 +16,22 @@ pub struct Arguments {
     pub path: PathBuf,
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+fn run() -> Result<ExitCode> {
     let args = Arguments::parse();
     let deps = get_deps(&args.path);
-    println!("{:?}", deps);
-    Ok(())
+    deps
+    // println!("{:?}", deps);
 }
 
 fn main() {
     let result = run();
     match result {
-        Ok(_) => {}
+        Ok(exit_code) => {
+            exit_code.exit();
+        }
         Err(err) => {
-            eprintln!("[pip-udeps erro]: {:#}", err);
-            // at some point code back and make these error code more meaningful
-            std::process::exit(1);
+            eprintln!("Error: {}", err);
+            ExitCode::GeneralError.exit();
         }
     }
 }
