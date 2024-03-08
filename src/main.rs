@@ -68,21 +68,19 @@ fn set_project_dir(opts: &Opts) -> Result<()> {
         return Err(anyhow!("The provided path does not exist."));
     } else if !opts.base_directory.is_dir() {
         return Err(anyhow!("The provided path is not a directory."));
-    } else if !check_for_poetry_toml(&opts.base_directory) {
-        // Here I am going to check if the provided path contains a poetry.toml or requirements.txt in the root
+    } else if !pip_udeps::check_for_dependency_specification_files(&opts.base_directory) {
+        return Err(anyhow!(format!(
+            "Could not find `Requirements.txt` or `pyproject.toml` in '{}' or any parent directory",
+            env::current_dir()?.to_string_lossy()
+        )));
     }
     env::set_current_dir(&opts.base_directory).with_context(|| {
         format!(
             "Could not set '{}' as the current working directory. Please check the path provided.",
-            opts.base_directory.to_string_lossy()
+            // Not a fan of the unwrap here!!!
+            env::current_dir().unwrap().to_string_lossy()
         )
     })?;
 
     Ok(())
-}
-
-fn check_for_poetry_toml(_base_directory: &PathBuf) -> bool {
-    // check for poetry.toml in the root of the provided path
-    // this might change in the future.
-    true
 }

@@ -92,9 +92,57 @@ pub fn get_used_dependencies(dir: &PathBuf) -> Result<Vec<ast::Identifier>, std:
     Ok(used_dependencies.into_iter().collect())
 }
 
+// Checks for dependency specification files in the specified directory or any parent directories.
+///
+///
+/// # Arguments
+///
+/// * `base_directory` - A reference to the PathBuf for the directory to search within.
+///
+/// # Returns
+///
+/// A boolean indicating whether the dependency specification files were found.
+
+// pub fn check_for_dependency_specification_files(base_directory: &PathBuf) -> bool {
+//     let mut current_dir = base_directory.as_path();
+
+//     loop {
+//         // Check for the presence of 'requirements.txt' or 'pyproject.toml' in the current directory
+//         if fs::read_dir(current_dir).ok().map_or(false, |entries| {
+//             entries.filter_map(|e| e.ok()).any(|entry| {
+//                 let file_name = entry.file_name().to_string_lossy().into_owned();
+//                 file_name == "requirements.txt" || file_name == "pyproject.toml"
+//             })
+//         }) {
+//             return true;
+//         }
+
+//         // Move to the parent directory, if possible
+//         match current_dir.parent() {
+//             Some(parent) => current_dir = parent,
+//             None => break, // No more parent directories, stop the loop
+//         }
+//     }
+
+//     false
+// }
+
+pub fn check_for_dependency_specification_files(base_directory: &PathBuf) -> bool {
+    base_directory.ancestors().any(|directory| {
+        // Might be adding more here!!! Not sure yet
+        let files = vec!["requirements.txt", "pyproject.toml"];
+        files
+            .iter()
+            .any(|&file_name| directory.join(file_name).exists())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use tempfile::tempdir;
 
     #[test]
     fn test_extract_first_part_of_import() {
@@ -173,6 +221,14 @@ mod tests {
         collect_imports(body, &mut temp_deps_set);
         assert_eq!(temp_deps_set.len(), 1);
         assert!(temp_deps_set.contains(&ast::Identifier::new("os")));
+    }
+
+    #[test]
+    fn test_for_dependency_specification_files() {
+        // let dir = PathBuf::from("tests/fixtures");
+
+        // let found = check_for_dependency_specification_files(&dir);
+        // assert!(found);
     }
 
     #[test]
