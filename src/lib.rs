@@ -1,9 +1,12 @@
 mod exit_codes;
 
+use exit_codes::ExitCode;
 use rustpython_parser::{ast, lexer::lex, parse_tokens, Mode, ParseError};
 use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
+
+use toml::Table;
 use walkdir::WalkDir;
 
 // Extracts the first part of an import statement, which is the module name.
@@ -102,31 +105,6 @@ pub fn get_used_dependencies(dir: &PathBuf) -> Result<Vec<ast::Identifier>, std:
 /// # Returns
 ///
 /// A boolean indicating whether the dependency specification files were found.
-
-// pub fn check_for_dependency_specification_files(base_directory: &PathBuf) -> bool {
-//     let mut current_dir = base_directory.as_path();
-
-//     loop {
-//         // Check for the presence of 'requirements.txt' or 'pyproject.toml' in the current directory
-//         if fs::read_dir(current_dir).ok().map_or(false, |entries| {
-//             entries.filter_map(|e| e.ok()).any(|entry| {
-//                 let file_name = entry.file_name().to_string_lossy().into_owned();
-//                 file_name == "requirements.txt" || file_name == "pyproject.toml"
-//             })
-//         }) {
-//             return true;
-//         }
-
-//         // Move to the parent directory, if possible
-//         match current_dir.parent() {
-//             Some(parent) => current_dir = parent,
-//             None => break, // No more parent directories, stop the loop
-//         }
-//     }
-
-//     false
-// }
-
 pub fn check_for_dependency_specification_files(base_directory: &PathBuf) -> bool {
     base_directory.ancestors().any(|directory| {
         // Might be adding more here!!! Not sure yet
@@ -137,10 +115,40 @@ pub fn check_for_dependency_specification_files(base_directory: &PathBuf) -> boo
     })
 }
 
+// get all the packages in the pyproject.toml file
+pub fn get_packages_from_pyproject_toml() -> Result<Vec<String>, ExitCode> {
+    let file_path = PathBuf::from("/Users/lev/Developer/ghost-website/pyproject.toml");
+    let toml_str = match fs::read_to_string(file_path) {
+        Ok(content) => content,
+        Err(_) => return Err(ExitCode::GeneralError),
+    };
+
+    let toml: Table = match toml::from_str(&toml_str) {
+        Ok(toml) => toml,
+        Err(_) => return Err(ExitCode::GeneralError),
+    };
+
+    let dependencies = match toml.get("tool") {
+        Some(tool) => match tool.get("poetry") {
+            Some(poetry) => match poetry.get("dependencies") {
+                Some(dependencies) => dependencies,
+                None => return Err(ExitCode::GeneralError),
+            },
+            // None => return Err(ExitCode::GeneralError),
+        },
+        None => return Err(ExitCode::GeneralError),
+    };
+
+    print!("{:#?}", dependencies);
+
+    todo!()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs::File;
+    use std::io::Write;
     use std::io::{self};
     use tempfile::TempDir;
 
@@ -228,7 +236,7 @@ mod tests {
         assert!(temp_deps_set.contains(&ast::Identifier::new("sys")));
 
         let file_content = "from os import path";
-        let ast = parse_ast(file_content).unwrap();
+        let ast: ast::Mod = parse_ast(file_content).unwrap();
         let body = &ast.module().unwrap().body;
         let mut temp_deps_set: HashSet<ast::Identifier> = HashSet::new();
         collect_imports(body, &mut temp_deps_set);
@@ -269,11 +277,59 @@ mod tests {
     }
 
     #[test]
-    fn test_get_deps() {
-        // let dir = PathBuf::from("tests/fixtures");
-        // let deps = get_deps(&dir).unwrap();
-        // assert_eq!(deps.len(), 2);
-        // assert_eq!(deps[0].name, "os");
-        // assert_eq!(deps[1].name, "sys");
+    fn test_get_used_dependencies() {
+        let temp_dir = create_working_directory(
+            &["dir1", "dir2"],
+            Some(&["requirements.txt", "pyproject.toml"]),
+        )
+        .unwrap();
+        let base_directory = temp_dir.path().join("dir1");
+        let used_dependencies = get_used_dependencies(&base_directory).unwrap();
+        assert_eq!(used_dependencies.len(), 0);
+
+        let temp_dir = create_working_directory(
+            &["dir1", "dir2"],
+            Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
+        )
+        .unwrap();
+        let base_directory = temp_dir.path().join("dir1");
+        let used_dependencies = get_used_dependencies(&base_directory).unwrap();
+        assert_eq!(used_dependencies.len(), 0);
+
+        let temp_dir = create_working_directory(
+            &["dir1", "dir2"],
+            Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
+        )
+        .unwrap();
+        let base_directory = temp_dir.path().join("dir2");
+        let used_dependencies = get_used_dependencies(&base_directory).unwrap();
+        assert_eq!(used_dependencies.len(), 0);
+
+        let temp_dir = create_working_directory(
+            &["dir1", "dir2"],
+            Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
+        )
+        .unwrap();
+        let base_directory = temp_dir.path().join("dir1");
+        let file_path = base_directory.join("file1.py");
+        let mut file = File::create(file_path).unwrap();
+        file.write_all("import os".as_bytes()).unwrap();
+
+        let used_dependencies = get_used_dependencies(&base_directory).unwrap();
+        assert_eq!(used_dependencies.len(), 1);
+        assert!(used_dependencies.contains(&ast::Identifier::new("os")));
+
+        let temp_dir = create_working_directory(
+            &["dir1", "dir2"],
+            Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
+        )
+        .unwrap();
+        let base_directory = temp_dir.path().join("dir1");
+        let file_path = base_directory.join("file1.py");
+        let mut file = File::create(file_path).unwrap();
+        file.write_all(b"import os, sys").unwrap();
+        let used_dependencies = get_used_dependencies(&base_directory).unwrap();
+        assert_eq!(used_dependencies.len(), 2);
+        assert!(used_dependencies.contains(&ast::Identifier::new("os")));
     }
 }

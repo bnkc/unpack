@@ -53,13 +53,14 @@ fn main() {
 fn run() -> Result<ExitCode> {
     let opts = Opts::parse();
 
-    set_project_dir(&opts)?;
+    // set_project_dir(&opts)?;
+
+    // let packages = todo!("get packages");
+    let _ = pip_udeps::get_packages_from_pyproject_toml().unwrap();
 
     let used_dependencies = get_used_dependencies(&opts.base_directory);
 
-    println!("{:?}", used_dependencies);
-
-    // this is temporary
+    // // this is temporary
     Ok(ExitCode::HasResults(used_dependencies?.is_empty()))
 }
 
