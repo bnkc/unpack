@@ -141,17 +141,28 @@ pub fn check_for_dependency_specification_files(base_directory: &PathBuf) -> boo
 mod tests {
     use super::*;
     use std::fs::File;
-    use std::io::Write;
+    use std::io::{self};
     use tempfile::TempDir;
 
-    // create working directory with optional files
-    fn setup_temp_dir_with_optional_files() -> PathBuf {
-        let temp_dir = TempDir::new().unwrap();
-        let file_path = temp_dir.path().join("requirements.txt");
-        // create the file
-        let mut file = File::create(file_path).unwrap();
-        file.write_all(b"").unwrap();
-        temp_dir.into_path()
+    fn create_working_directory(
+        directories: &[&'static str],
+        files: Option<&[&'static str]>,
+    ) -> Result<TempDir, io::Error> {
+        let temp_dir = TempDir::new()?;
+
+        directories.iter().for_each(|directory| {
+            let dir_path = temp_dir.path().join(directory);
+            fs::create_dir_all(dir_path).unwrap();
+        });
+
+        if let Some(files) = files {
+            files.iter().for_each(|file| {
+                let file_path = temp_dir.path().join(file);
+                File::create(file_path).unwrap();
+            });
+        }
+
+        Ok(temp_dir)
     }
 
     #[test]
@@ -235,14 +246,26 @@ mod tests {
 
     #[test]
     fn test_for_dependency_specification_files() {
-        let temp_dir_path = setup_temp_dir_with_optional_files();
-        let result = check_for_dependency_specification_files(&temp_dir_path);
-        assert_eq!(result, false);
+        let temp_dir = create_working_directory(
+            &["dir1", "dir2"],
+            Some(&["requirements.txt", "pyproject.toml"]),
+        )
+        .unwrap();
+        let base_directory = temp_dir.path().join("dir1");
+        assert!(check_for_dependency_specification_files(&base_directory));
 
-        let temp_dir_path = setup_temp_dir_with_optional_files();
-        let file_path = temp_dir_path.join("requirements.txt");
-        // create the file
-        // let mut file = File::create(file_path).unwrap();
+        let temp_dir = create_working_directory(
+            &["dir1", "dir2"],
+            Some(&["requirements.txt", "pyproject.toml"]),
+        )
+        .unwrap();
+        let base_directory = temp_dir.path().join("dir2");
+        assert!(check_for_dependency_specification_files(&base_directory));
+
+        // now write one where it's false
+        let temp_dir = create_working_directory(&["dir1", "dir2"], None).unwrap();
+        let base_directory = temp_dir.path().join("dir2");
+        assert!(!check_for_dependency_specification_files(&base_directory));
     }
 
     #[test]
