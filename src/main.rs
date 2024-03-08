@@ -9,7 +9,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use std::env;
 
-use pip_udeps::get_deps;
+use pip_udeps::get_used_dependencies;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -55,12 +55,12 @@ fn run() -> Result<ExitCode> {
 
     set_project_dir(&opts)?;
 
-    let deps = get_deps(&opts.base_directory);
+    let used_dependencies = get_used_dependencies(&opts.base_directory);
 
-    println!("{:?}", deps);
+    println!("{:?}", used_dependencies);
 
     // this is temporary
-    Ok(ExitCode::HasResults(deps?.is_empty()))
+    Ok(ExitCode::HasResults(used_dependencies?.is_empty()))
 }
 
 fn set_project_dir(opts: &Opts) -> Result<()> {

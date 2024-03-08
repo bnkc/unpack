@@ -70,9 +70,9 @@ fn collect_imports(stmts: &[ast::Stmt], deps_set: &mut HashSet<ast::Identifier>)
 /// # Returns
 ///
 /// A Result containing a Vec of ast::Identifier on success, or an std::io::Error on failure.
-pub fn get_deps(dir: &PathBuf) -> Result<Vec<ast::Identifier>, std::io::Error> {
+pub fn get_used_dependencies(dir: &PathBuf) -> Result<Vec<ast::Identifier>, std::io::Error> {
     let walker = WalkDir::new(dir).into_iter();
-    let mut deps_set = HashSet::new();
+    let mut used_dependencies = HashSet::new();
 
     for entry in walker.filter_map(|e| e.ok()) {
         if entry.file_name().to_string_lossy().ends_with(".py") {
@@ -83,13 +83,13 @@ pub fn get_deps(dir: &PathBuf) -> Result<Vec<ast::Identifier>, std::io::Error> {
 
             if let Ok(ast) = parse_ast(&file_content) {
                 if let Some(module) = ast.module() {
-                    collect_imports(&module.body, &mut deps_set);
+                    collect_imports(&module.body, &mut used_dependencies);
                 }
             }
         }
     }
 
-    Ok(deps_set.into_iter().collect())
+    Ok(used_dependencies.into_iter().collect())
 }
 
 #[cfg(test)]
