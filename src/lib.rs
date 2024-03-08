@@ -142,7 +142,17 @@ mod tests {
     use super::*;
     use std::fs::File;
     use std::io::Write;
-    use tempfile::tempdir;
+    use tempfile::TempDir;
+
+    // create working directory with optional files
+    fn setup_temp_dir_with_optional_files() -> PathBuf {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("requirements.txt");
+        // create the file
+        let mut file = File::create(file_path).unwrap();
+        file.write_all(b"").unwrap();
+        temp_dir.into_path()
+    }
 
     #[test]
     fn test_extract_first_part_of_import() {
@@ -225,10 +235,14 @@ mod tests {
 
     #[test]
     fn test_for_dependency_specification_files() {
-        // let dir = PathBuf::from("tests/fixtures");
+        let temp_dir_path = setup_temp_dir_with_optional_files();
+        let result = check_for_dependency_specification_files(&temp_dir_path);
+        assert_eq!(result, false);
 
-        // let found = check_for_dependency_specification_files(&dir);
-        // assert!(found);
+        let temp_dir_path = setup_temp_dir_with_optional_files();
+        let file_path = temp_dir_path.join("requirements.txt");
+        // create the file
+        // let mut file = File::create(file_path).unwrap();
     }
 
     #[test]
