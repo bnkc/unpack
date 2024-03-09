@@ -115,31 +115,50 @@ pub fn check_for_dependency_specification_files(base_directory: &PathBuf) -> boo
     })
 }
 
+#[derive(Debug)]
+struct Package {
+    name: String,
+    version: String,
+}
+
 // get all the packages in the pyproject.toml file
 pub fn get_packages_from_pyproject_toml() -> Result<Vec<String>, ExitCode> {
     let file_path = PathBuf::from("/Users/lev/Developer/ghost-website/pyproject.toml");
-    let toml_str = match fs::read_to_string(file_path) {
-        Ok(content) => content,
-        Err(_) => return Err(ExitCode::GeneralError),
-    };
 
-    let toml: Table = match toml::from_str(&toml_str) {
-        Ok(toml) => toml,
-        Err(_) => return Err(ExitCode::GeneralError),
-    };
+    let toml_str = fs::read_to_string(file_path).map_err(|_| ExitCode::GeneralError)?;
+    let toml: Table = toml::from_str(&toml_str).map_err(|_| ExitCode::GeneralError)?;
 
-    let dependencies = match toml.get("tool") {
-        Some(tool) => match tool.get("poetry") {
-            Some(poetry) => match poetry.get("dependencies") {
-                Some(dependencies) => dependencies,
-                None => return Err(ExitCode::GeneralError),
-            },
-            // None => return Err(ExitCode::GeneralError),
-        },
-        None => return Err(ExitCode::GeneralError),
-    };
-
-    print!("{:#?}", dependencies);
+    // let mut packages = Vec::new();
+    if let Some(packs) = toml
+        .get("tool")
+        .and_then(|t| t.get("poetry"))
+        .and_then(|p| p.get("dependencies"))
+        .and_then(|d| d.as_table())
+    {
+        for (name, version) in packs {
+            // println!("{}: {}", name, version);
+            // check if the version is a string. if it's a hash table, we need to extract the "version" key
+            // if it's a string, we can just use it
+            let version = if let Some(version) = version.as_str() {
+                version.to_string()
+            } else if let Some(version) = version.as_table() {
+                version
+                    .get("version")
+                    .and_then(|v| v.as_str())
+                    .ok_or(ExitCode::GeneralError)?
+                    .to_string()
+            } else {
+                return Err(ExitCode::GeneralError);
+            };
+            // println!("{}: {}", name, version);
+            let my_p = Package {
+                name: name.to_string(),
+                version,
+            };
+            // print the Package struct
+            println!("{:#?}", my_p);
+        }
+    }
 
     todo!()
 }
