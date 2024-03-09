@@ -485,6 +485,7 @@ dependencies = [
  "anyhow",
  "clap",
  "rustpython-parser",
+ "serde",
  "tempfile",
  "toml",
  "walkdir",

@@ -56,7 +56,8 @@ fn run() -> Result<ExitCode> {
     // set_project_dir(&opts)?;
 
     // let packages = todo!("get packages");
-    let _ = pip_udeps::get_packages_from_pyproject_toml().unwrap();
+    let val = pip_udeps::get_packages_from_pyproject_toml();
+    println!("{:#?}", val);
 
     let used_dependencies = get_used_dependencies(&opts.base_directory);
 

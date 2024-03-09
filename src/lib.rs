@@ -1,10 +1,13 @@
+mod defs;
 mod exit_codes;
 
+use defs::Package;
 use exit_codes::ExitCode;
 use rustpython_parser::{ast, lexer::lex, parse_tokens, Mode, ParseError};
 use std::collections::HashSet;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use toml::Value;
 
 use toml::Table;
 use walkdir::WalkDir;
@@ -115,52 +118,39 @@ pub fn check_for_dependency_specification_files(base_directory: &PathBuf) -> boo
     })
 }
 
-#[derive(Debug)]
-struct Package {
-    name: String,
-    version: String,
-}
-
 // get all the packages in the pyproject.toml file
-pub fn get_packages_from_pyproject_toml() -> Result<Vec<String>, ExitCode> {
+// Cargo has a resolver package in ops. This let's you analyze cargo.toml files but I need the equivalent to analyze pyproject.toml files
+// For python
+pub fn get_packages_from_pyproject_toml() -> Result<Vec<Package>, ExitCode> {
+    // this is temporary
     let file_path = PathBuf::from("/Users/lev/Developer/ghost-website/pyproject.toml");
-
     let toml_str = fs::read_to_string(file_path).map_err(|_| ExitCode::GeneralError)?;
     let toml: Table = toml::from_str(&toml_str).map_err(|_| ExitCode::GeneralError)?;
 
-    // let mut packages = Vec::new();
-    if let Some(packs) = toml
+    let packages: Vec<Package> = toml
         .get("tool")
         .and_then(|t| t.get("poetry"))
         .and_then(|p| p.get("dependencies"))
         .and_then(|d| d.as_table())
-    {
-        for (name, version) in packs {
-            // println!("{}: {}", name, version);
-            // check if the version is a string. if it's a hash table, we need to extract the "version" key
-            // if it's a string, we can just use it
-            let version = if let Some(version) = version.as_str() {
-                version.to_string()
-            } else if let Some(version) = version.as_table() {
-                version
+        .ok_or(ExitCode::GeneralError)?
+        .iter()
+        .filter_map(|(name, version)| {
+            let version_str = match version {
+                Value::String(s) => Some(s.to_string()),
+                Value::Table(t) => t
                     .get("version")
                     .and_then(|v| v.as_str())
-                    .ok_or(ExitCode::GeneralError)?
-                    .to_string()
-            } else {
-                return Err(ExitCode::GeneralError);
+                    .map(|s| s.to_string()),
+                _ => None,
             };
-            // println!("{}: {}", name, version);
-            let my_p = Package {
+            version_str.map(|version| Package {
                 name: name.to_string(),
                 version,
-            };
-            // print the Package struct
-            println!("{:#?}", my_p);
-        }
-    }
+            })
+        })
+        .collect();
 
-    todo!()
+    Ok(packages)
 }
 
 #[cfg(test)]
