@@ -1,6 +1,7 @@
 mod defs;
 mod exit_codes;
 
+use anyhow::anyhow;
 use defs::Package;
 use exit_codes::ExitCode;
 use rustpython_parser::{ast, lexer::lex, parse_tokens, Mode, ParseError};
@@ -108,31 +109,63 @@ pub fn get_used_dependencies(dir: &PathBuf) -> Result<Vec<ast::Identifier>, std:
 /// # Returns
 ///
 /// A boolean indicating whether the dependency specification files were found.
-pub fn check_for_dependency_specification_files(base_directory: &PathBuf) -> bool {
-    base_directory.ancestors().any(|directory| {
-        // Might be adding more here!!! Not sure yet
+// pub fn check_for_dependency_specification_files(base_directory: &PathBuf) -> bool {
+//     base_directory.ancestors().any(|directory| {
+//         // Might be adding more here!!! Not sure yet
+//         let files = vec!["requirements.txt", "pyproject.toml"];
+//         files
+//             .iter()
+//             .any(|&file_name| directory.join(file_name).exists())
+//     })
+// }
+pub fn get_dependency_specification_file(base_directory: &Path) -> anyhow::Result<PathBuf> {
+    let file = base_directory.ancestors().find_map(|directory| {
         let files = vec!["requirements.txt", "pyproject.toml"];
         files
-            .iter()
-            .any(|&file_name| directory.join(file_name).exists())
+            .into_iter()
+            .map(|file_name| directory.join(file_name))
+            .find(|file_path| file_path.exists())
+    });
+
+    file.ok_or_else(|| {
+        anyhow!(format!(
+            "Could not find `Requirements.txt` or `pyproject.toml` in '{}' or any parent directory",
+            base_directory.to_string_lossy()
+        ))
     })
 }
+//     return Err(anyhow!(format!(
+//         "Could not find `Requirements.txt` or `pyproject.toml` in '{}' or any parent directory",
+//         base_directory.to_string_lossy()
+//     )));
+// }
 
-// get all the packages in the pyproject.toml file
-// Cargo has a resolver package in ops. This let's you analyze cargo.toml files but I need the equivalent to analyze pyproject.toml files
-// For python
+// Gets the packages from a pyproject.toml file.
+///
+/// # Arguments
+///
+/// * `file` - A reference to the Path for the pyproject.toml file to read.
+///
+/// # Returns
+///
+/// A Result containing a Vec of Package on success, or an ExitCode on failure.
+///
+/// # Errors
+///
+/// * ExitCode::GeneralError - If the file could not be read or parsed.
 pub fn get_packages_from_pyproject_toml() -> Result<Vec<Package>, ExitCode> {
-    // this is temporary
     let file_path = PathBuf::from("/Users/lev/Developer/ghost-website/pyproject.toml");
     let toml_str = fs::read_to_string(file_path).map_err(|_| ExitCode::GeneralError)?;
     let toml: Table = toml::from_str(&toml_str).map_err(|_| ExitCode::GeneralError)?;
 
-    let packages: Vec<Package> = toml
+    let dependencies = toml
         .get("tool")
         .and_then(|t| t.get("poetry"))
         .and_then(|p| p.get("dependencies"))
         .and_then(|d| d.as_table())
-        .ok_or(ExitCode::GeneralError)?
+        .ok_or_else(|| ExitCode::GeneralError)?;
+
+    let pkgs = dependencies
         .iter()
         .filter_map(|(name, version)| {
             let version_str = match version {
@@ -144,13 +177,13 @@ pub fn get_packages_from_pyproject_toml() -> Result<Vec<Package>, ExitCode> {
                 _ => None,
             };
             version_str.map(|version| Package {
-                name: name.to_string(),
+                name: name.clone(),
                 version,
             })
         })
         .collect();
 
-    Ok(packages)
+    Ok(pkgs)
 }
 
 #[cfg(test)]

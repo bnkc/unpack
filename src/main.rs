@@ -9,7 +9,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use std::env;
 
-use pip_udeps::get_used_dependencies;
+use pip_udeps::{get_dependency_specification_file, get_used_dependencies};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -55,9 +55,10 @@ fn run() -> Result<ExitCode> {
 
     // set_project_dir(&opts)?;
 
-    // let packages = todo!("get packages");
-    let val = pip_udeps::get_packages_from_pyproject_toml();
-    println!("{:#?}", val);
+    // let val = pip_udeps::get_packages_from_pyproject_toml();
+    // println!("{:#?}", val);
+    let file = get_dependency_specification_file(&opts.base_directory);
+    println!("{:#?}", file);
 
     let used_dependencies = get_used_dependencies(&opts.base_directory);
 
@@ -70,11 +71,6 @@ fn set_project_dir(opts: &Opts) -> Result<()> {
         return Err(anyhow!("The provided path does not exist."));
     } else if !opts.base_directory.is_dir() {
         return Err(anyhow!("The provided path is not a directory."));
-    } else if !pip_udeps::check_for_dependency_specification_files(&opts.base_directory) {
-        return Err(anyhow!(format!(
-            "Could not find `Requirements.txt` or `pyproject.toml` in '{}' or any parent directory",
-            env::current_dir()?.to_string_lossy()
-        )));
     }
     env::set_current_dir(&opts.base_directory).with_context(|| {
         format!(
