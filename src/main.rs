@@ -9,7 +9,9 @@ use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use std::env;
 
-use pip_udeps::{get_dependency_specification_file, get_used_dependencies};
+use pip_udeps::{
+    get_dependency_specification_file, get_packages_from_pyproject_toml, get_used_dependencies,
+};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -53,17 +55,16 @@ fn main() {
 fn run() -> Result<ExitCode> {
     let opts = Opts::parse();
 
-    // set_project_dir(&opts)?;
+    set_project_dir(&opts)?;
 
-    // let val = pip_udeps::get_packages_from_pyproject_toml();
-    // println!("{:#?}", val);
-    let file = get_dependency_specification_file(&opts.base_directory);
-    println!("{:#?}", file);
+    let file = get_dependency_specification_file(&opts.base_directory)?;
+    let packages = get_packages_from_pyproject_toml(&file);
+    println!("{:#?}", packages);
 
-    let used_dependencies = get_used_dependencies(&opts.base_directory);
+    // let used_dependencies = get_used_dependencies(&opts.base_directory);
 
     // // this is temporary
-    Ok(ExitCode::HasResults(used_dependencies?.is_empty()))
+    Ok(ExitCode::Success)
 }
 
 fn set_project_dir(opts: &Opts) -> Result<()> {
