@@ -1,14 +1,19 @@
 mod defs;
+mod error;
 mod exit_codes;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context, Result};
+
 use defs::Package;
+use error::print_error;
 use exit_codes::ExitCode;
 use rustpython_parser::{ast, lexer::lex, parse_tokens, Mode, ParseError};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use toml::Value;
+
+use std::env;
 
 use toml::Table;
 use walkdir::WalkDir;
@@ -130,15 +135,10 @@ pub fn get_dependency_specification_file(base_directory: &Path) -> anyhow::Resul
     file.ok_or_else(|| {
         anyhow!(format!(
             "Could not find `Requirements.txt` or `pyproject.toml` in '{}' or any parent directory",
-            base_directory.to_string_lossy()
+            env::current_dir().unwrap().to_string_lossy()
         ))
     })
 }
-//     return Err(anyhow!(format!(
-//         "Could not find `Requirements.txt` or `pyproject.toml` in '{}' or any parent directory",
-//         base_directory.to_string_lossy()
-//     )));
-// }
 
 // Gets the packages from a pyproject.toml file.
 ///
@@ -153,17 +153,23 @@ pub fn get_dependency_specification_file(base_directory: &Path) -> anyhow::Resul
 /// # Errors
 ///
 /// * ExitCode::GeneralError - If the file could not be read or parsed.
-pub fn get_packages_from_pyproject_toml(file: &PathBuf) -> Result<Vec<Package>, ExitCode> {
-    // let file_path = PathBuf::from("/Users/lev/Developer/ghost-website/pyproject.toml");
-    let toml_str = fs::read_to_string(file).map_err(|_| ExitCode::GeneralError)?;
-    let toml: Table = toml::from_str(&toml_str).map_err(|_| ExitCode::GeneralError)?;
+pub fn get_packages_from_pyproject_toml(file: &PathBuf) -> Result<Vec<Package>> {
+    let toml_str = fs::read_to_string(file)?;
+
+    let toml: Table = match toml::from_str(&toml_str) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("{}", e);
+            return Ok(vec![]);
+        }
+    };
 
     let dependencies = toml
         .get("tool")
         .and_then(|t| t.get("poetry"))
         .and_then(|p| p.get("dependencies"))
         .and_then(|d| d.as_table())
-        .ok_or_else(|| ExitCode::GeneralError)?;
+        .ok_or_else(|| anyhow!("Missing `[tool.poetry.dependencies]` section in TOML"))?;
 
     let pkgs = dependencies
         .iter()
@@ -230,7 +236,7 @@ mod tests {
         assert_eq!(first_part.as_str(), "");
     }
     #[test]
-    fn test_parse_ast() {
+    fn parse_ast_working() {
         let file_content = "import os";
         let ast = parse_ast(file_content);
         assert!(ast.is_ok());
@@ -239,13 +245,6 @@ mod tests {
         let ast = parse_ast(file_content);
         assert!(ast.is_ok());
 
-        // let's do one where it returns an error
-        let file_content = "import os,";
-        let ast = parse_ast(file_content);
-        // THIS IS IMPORTANT TO KNOW. WHEN A TOP LEVEL IMPORT FAILS, THE WHOLE FILE FAILS
-        assert!(ast.is_err());
-
-        // Let's check the actual parsing
         let file_content = "import os";
         let ast = parse_ast(file_content).unwrap();
 
@@ -258,8 +257,15 @@ mod tests {
         assert_eq!(temp_deps_set.len(), 1);
         assert!(temp_deps_set.contains(&ast::Identifier::new("os")));
     }
+
     #[test]
-    fn test_collect_imports() {
+    fn parse_ast_failing() {
+        let file_content = "import os,";
+        let ast = parse_ast(file_content);
+        assert!(ast.is_err());
+    }
+    #[test]
+    fn collect_imports_success() {
         let file_content = "import os";
         let ast = parse_ast(file_content).unwrap();
         let body = &ast.module().unwrap().body;
@@ -284,6 +290,13 @@ mod tests {
         collect_imports(body, &mut temp_deps_set);
         assert_eq!(temp_deps_set.len(), 1);
         assert!(temp_deps_set.contains(&ast::Identifier::new("os")));
+    }
+
+    #[test]
+    fn collect_imports_failure() {
+        let file_content = "import os,";
+        let ast = parse_ast(file_content);
+        assert!(ast.is_err());
 
         let file_content = "from os import path, sys";
         let ast = parse_ast(file_content).unwrap();
@@ -294,29 +307,22 @@ mod tests {
         assert!(temp_deps_set.contains(&ast::Identifier::new("os")));
     }
 
-    // #[test]
-    // fn test_for_dependency_specification_files() {
-    //     let temp_dir = create_working_directory(
-    //         &["dir1", "dir2"],
-    //         Some(&["requirements.txt", "pyproject.toml"]),
-    //     )
-    //     .unwrap();
-    //     let base_directory = temp_dir.path().join("dir1");
-    //     assert!(check_for_dependency_specification_files(&base_directory));
+    #[test]
+    fn get_dependency_specification_file_that_exists() {
+        let temp_dir =
+            create_working_directory(&["dir1", "dir2"], Some(&["pyproject.toml"])).unwrap();
+        let base_directory = temp_dir.path().join("dir1");
+        let file = get_dependency_specification_file(&base_directory).unwrap();
+        assert_eq!(file.file_name().unwrap(), "pyproject.toml");
+    }
 
-    //     let temp_dir = create_working_directory(
-    //         &["dir1", "dir2"],
-    //         Some(&["requirements.txt", "pyproject.toml"]),
-    //     )
-    //     .unwrap();
-    //     let base_directory = temp_dir.path().join("dir2");
-    //     assert!(check_for_dependency_specification_files(&base_directory));
-
-    //     // now write one where it's false
-    //     let temp_dir = create_working_directory(&["dir1", "dir2"], None).unwrap();
-    //     let base_directory = temp_dir.path().join("dir2");
-    //     assert!(!check_for_dependency_specification_files(&base_directory));
-    // }
+    #[test]
+    fn get_dependency_specification_file_that_does_not_exist() {
+        let temp_dir = create_working_directory(&["dir1", "dir2"], None).unwrap();
+        let base_directory = temp_dir.path().join("dir1");
+        let file = get_dependency_specification_file(&base_directory);
+        assert!(file.is_err());
+    }
 
     #[test]
     fn test_get_used_dependencies() {
@@ -374,4 +380,6 @@ mod tests {
         assert_eq!(used_dependencies.len(), 2);
         assert!(used_dependencies.contains(&ast::Identifier::new("os")));
     }
+
+    // Need to write tests for get_packages_from_pyproject_toml here
 }

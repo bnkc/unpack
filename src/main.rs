@@ -57,9 +57,14 @@ fn run() -> Result<ExitCode> {
 
     set_project_dir(&opts)?;
 
-    let file = get_dependency_specification_file(&opts.base_directory)?;
-    let packages = get_packages_from_pyproject_toml(&file);
+    let deps_file = get_dependency_specification_file(&opts.base_directory)?;
+    let packages = get_packages_from_pyproject_toml(&deps_file);
+    // use packages or end it here
+
+    // let _test = packages;
     println!("{:#?}", packages);
+
+    // let _used_dependencies = get_used_dependencies(&opts.base_directory);
 
     // let used_dependencies = get_used_dependencies(&opts.base_directory);
 
@@ -76,7 +81,6 @@ fn set_project_dir(opts: &Opts) -> Result<()> {
     env::set_current_dir(&opts.base_directory).with_context(|| {
         format!(
             "Could not set '{}' as the current working directory. Please check the path provided.",
-            // Not a fan of the unwrap here!!!
             env::current_dir().unwrap().to_string_lossy()
         )
     })?;
