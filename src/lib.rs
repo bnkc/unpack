@@ -114,15 +114,6 @@ pub fn get_used_dependencies(dir: &PathBuf) -> Result<Vec<ast::Identifier>, std:
 /// # Returns
 ///
 /// A boolean indicating whether the dependency specification files were found.
-// pub fn check_for_dependency_specification_files(base_directory: &PathBuf) -> bool {
-//     base_directory.ancestors().any(|directory| {
-//         // Might be adding more here!!! Not sure yet
-//         let files = vec!["requirements.txt", "pyproject.toml"];
-//         files
-//             .iter()
-//             .any(|&file_name| directory.join(file_name).exists())
-//     })
-// }
 pub fn get_dependency_specification_file(base_directory: &Path) -> anyhow::Result<PathBuf> {
     let file = base_directory.ancestors().find_map(|directory| {
         let files = vec!["requirements.txt", "pyproject.toml"];
@@ -382,4 +373,32 @@ mod tests {
     }
 
     // Need to write tests for get_packages_from_pyproject_toml here
+    #[test]
+    fn get_packages_from_pyproject_toml_success() {
+        let temp_dir =
+            create_working_directory(&["dir1", "dir2"], Some(&["pyproject.toml"])).unwrap();
+        let base_directory = temp_dir.path().join("dir1");
+        let file_path = base_directory.join("pyproject.toml");
+        let mut file = File::create(&file_path).unwrap();
+        file.write_all(
+            r#"
+            [tool.poetry.dependencies]
+            requests = "2.25.1"
+            python = "^3.8"
+            "#
+            .as_bytes(),
+        )
+        .unwrap();
+
+        let packages = get_packages_from_pyproject_toml(&file_path).unwrap();
+        assert_eq!(packages.len(), 2);
+        assert!(packages.contains(&Package {
+            name: "requests".to_string(),
+            version: "2.25.1".to_string()
+        }));
+        assert!(packages.contains(&Package {
+            name: "python".to_string(),
+            version: "^3.8".to_string()
+        }));
+    }
 }
