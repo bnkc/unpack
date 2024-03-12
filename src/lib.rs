@@ -7,6 +7,9 @@ use anyhow::{anyhow, Context, Result};
 use defs::Package;
 use error::print_error;
 use exit_codes::ExitCode;
+use std::process::Command;
+use std::str;
+
 use rustpython_parser::{ast, lexer::lex, parse_tokens, Mode, ParseError};
 use std::collections::HashSet;
 use std::fs;
@@ -181,6 +184,39 @@ pub fn get_packages_from_pyproject_toml(file: &PathBuf) -> Result<Vec<Package>> 
         .collect();
 
     Ok(pkgs)
+}
+
+// CPython has a built-in module called site.py that is executed when the interpreter starts.
+// This module adds a site-packages directory to the module search path. The site-packages directory is where third-party packages are installed.
+// This directory is automatically added to the module search path by the site module.
+// In our case, we need we will use std::process::Command to execute the python -m site --user-site command to get the site-packages directory.
+// In the future it would be cool to implement this in Rust
+pub fn get_site_packages_dir() -> Result<String, String> {
+    let output = Command::new("python")
+        .arg("-m")
+        .arg("site")
+        .arg("--user-site")
+        .output();
+
+    println!("{:?}", output);
+    // match output {
+    //     Ok(output) => {
+    //         if output.status.success() {
+    //             let path_str = str::from_utf8(&output.stdout)
+    //                 .map_err(|e| e.to_string())?
+    //                 .trim()
+    //                 .to_string();
+    //             Ok(path_str)
+    //         } else {
+    //             let error_message = str::from_utf8(&output.stderr).map_err(|e| e.to_string())?;
+    //             Err(format!(
+    //                 "Failed to get site-packages directory: {}",
+    //                 error_message
+    //             ))
+    //         }
+    //     }
+    //     Err(e) => Err(format!("Failed to execute python command: {}", e)),
+    // }
 }
 
 #[cfg(test)]

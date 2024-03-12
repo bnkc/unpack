@@ -10,7 +10,8 @@ use clap::Parser;
 use std::env;
 
 use pip_udeps::{
-    get_dependency_specification_file, get_packages_from_pyproject_toml, get_used_dependencies,
+    get_dependency_specification_file, get_packages_from_pyproject_toml, get_site_packages_dir,
+    get_used_dependencies,
 };
 use std::path::PathBuf;
 
@@ -62,7 +63,9 @@ fn run() -> Result<ExitCode> {
     // use packages or end it here
 
     // let _test = packages;
-    println!("{:#?}", packages);
+    // println!("{:#?}", packages);
+    let cool_path = get_site_packages_dir();
+    println!("{:#?}", cool_path);
 
     // let _used_dependencies = get_used_dependencies(&opts.base_directory);
 
