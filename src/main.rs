@@ -1,6 +1,6 @@
 // another name could be prune-deps
 // or prune-udeps
-// or prunes-rs
+// or prune-rs
 
 mod exit_codes;
 

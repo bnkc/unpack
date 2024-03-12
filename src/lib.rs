@@ -82,8 +82,8 @@ fn collect_imports(stmts: &[ast::Stmt], deps_set: &mut HashSet<ast::Identifier>)
 /// # Returns
 ///
 /// A Result containing a Vec of ast::Identifier on success, or an std::io::Error on failure.
-pub fn get_used_dependencies(dir: &PathBuf) -> Result<Vec<ast::Identifier>, std::io::Error> {
-    let walker = WalkDir::new(dir).into_iter();
+pub fn get_used_dependencies(dir: &PathBuf) -> Result<Vec<ast::Identifier>> {
+    let walker: walkdir::IntoIter = WalkDir::new(dir).into_iter();
     let mut used_dependencies = HashSet::new();
 
     for entry in walker.filter_map(|e| e.ok()) {
