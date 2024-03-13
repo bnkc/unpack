@@ -10,7 +10,7 @@ use clap::Parser;
 use std::env;
 
 use pip_udeps::{
-    get_dependency_specification_file, get_packages_from_pyproject_toml, get_site_packages_dir,
+    get_dependency_specification_file, get_packages_from_pyproject_toml, get_site_packages,
     get_used_dependencies,
 };
 use std::path::PathBuf;
@@ -64,8 +64,14 @@ fn run() -> Result<ExitCode> {
 
     // let _test = packages;
     // println!("{:#?}", packages);
-    let cool_path = get_site_packages_dir();
+    let cool_path = get_site_packages();
     println!("{:#?}", cool_path);
+
+    // let my_val = env::var("VIRTUAL_ENV")
+    //     .ok()
+    //     .and_then(|path| path.split('/').last().map(String::from));
+
+    // println!("{:#?}", my_val);
 
     // let _used_dependencies = get_used_dependencies(&opts.base_directory);
 

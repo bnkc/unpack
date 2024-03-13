@@ -4,7 +4,7 @@ mod exit_codes;
 
 use anyhow::{anyhow, Context, Result};
 
-use defs::Package;
+use defs::{Package, SitePackagesDir};
 use error::print_error;
 use exit_codes::ExitCode;
 use std::process::Command;
@@ -31,6 +31,7 @@ use walkdir::WalkDir;
 /// # Returns
 ///
 /// An ast::Identifier containing the first part of the import statement.
+#[inline]
 fn extract_first_part_of_import(import: &str) -> ast::Identifier {
     import.split('.').next().unwrap_or_default().into()
 }
@@ -44,6 +45,7 @@ fn extract_first_part_of_import(import: &str) -> ast::Identifier {
 /// # Returns
 ///
 /// A Result containing the parsed ast::Mod on success, or a ParseError on failure.
+#[inline]
 fn parse_ast(file_content: &str) -> Result<ast::Mod, ParseError> {
     parse_tokens(lex(file_content, Mode::Module), Mode::Module, "<embedded>")
 }
@@ -186,26 +188,38 @@ pub fn get_packages_from_pyproject_toml(file: &PathBuf) -> Result<Vec<Package>> 
     Ok(pkgs)
 }
 
-// CPython has a built-in module called site.py that is executed when the interpreter starts.
-// This module adds a site-packages directory to the module search path. The site-packages directory is where third-party packages are installed.
-// This directory is automatically added to the module search path by the site module.
-// In our case, we need we will use std::process::Command to execute the python -m site --user-site command to get the site-packages directory.
-// In the future it would be cool to implement this in Rust
-pub fn get_site_packages_dir() -> Result<String> {
+// Gets the site-packages directory + venv name for the current Python environment.
+///
+/// # Returns
+///     
+/// A Result containing a SitePackagesDir on success, or an ExitCode on failure.
+///     
+/// # Errors
+///
+/// * ExitCode::GeneralError - If the Python command failed to execute.
+pub fn get_site_packages() -> Result<SitePackagesDir> {
     let output = Command::new("python")
         .arg("-m")
         .arg("site")
         .arg("--user-site")
         .output()
-        .with_context(|| "Could not get site-packages directory")?;
+        .context("Failed to execute python command. Is Python installed?")?;
 
-    let site_packages_dir = str::from_utf8(&output.stdout);
-    match site_packages_dir {
-        Ok(dir) => Ok(dir.trim().to_string()),
-        Err(_) => Err(anyhow!(
-            "Could not get site-packages directory. Are you sure Python is installed?"
-        )),
-    }
+    let dir = str::from_utf8(&output.stdout)
+        .context("Output was not valid UTF-8.")?
+        .trim()
+        .to_string();
+
+    let is_venv = env::var("VIRTUAL_ENV").is_ok();
+    let venv_name = env::var("VIRTUAL_ENV")
+        .ok()
+        .and_then(|path| path.split('/').last().map(String::from));
+
+    Ok(SitePackagesDir {
+        path: dir,
+        is_venv,
+        venv_name,
+    })
 }
 
 #[cfg(test)]
@@ -428,11 +442,28 @@ mod tests {
     }
 
     #[test]
-    fn get_site_packages_dir_success() {
-        // By default, regardless of the OS, the site-packages directory is always in the user's home directory.
-        // Typically it looks like this:
-        // /username/.local/lib/python3.8/site-packages
-        let site_packages_dir = get_site_packages_dir().unwrap();
-        assert!(site_packages_dir.contains("site-packages"));
+    fn get_get_site_packages_success() {
+        let site_packages = get_site_packages().unwrap();
+        assert!(!site_packages.path.is_empty());
+
+        let is_venv = env::var("VIRTUAL_ENV").is_ok();
+        assert_eq!(site_packages.is_venv, is_venv);
+
+        if is_venv {
+            let venv_name = env::var("VIRTUAL_ENV")
+                .ok()
+                .and_then(|path| path.split('/').last().map(String::from));
+            assert_eq!(site_packages.venv_name, venv_name);
+        }
+
+        let temp_dir = create_working_directory(&["dir1", "dir2"], None).unwrap();
+        let base_directory = temp_dir.path().join("dir1");
+        let venv_name = "my_venv";
+        let venv_path = base_directory.join(venv_name);
+        fs::create_dir_all(&venv_path).unwrap();
+        env::set_var("VIRTUAL_ENV", venv_path.to_str().unwrap());
+        let site_packages = get_site_packages().unwrap();
+        assert_eq!(site_packages.venv_name, Some(venv_name.to_string()));
+        assert!(site_packages.is_venv);
     }
 }
