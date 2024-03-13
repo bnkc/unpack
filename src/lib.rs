@@ -5,8 +5,11 @@ mod exit_codes;
 use anyhow::{anyhow, Context, Result};
 
 use defs::{Package, SitePackagesDir};
+use dialoguer::Confirm;
 use error::print_error;
 use exit_codes::ExitCode;
+use log::{info, warn};
+
 use std::process::Command;
 use std::str;
 
@@ -21,32 +24,13 @@ use std::env;
 use toml::Table;
 use walkdir::WalkDir;
 
-// Extracts the first part of an import statement, which is the module name.
-///
-///
-/// # Arguments
-///
-/// * `import` - A reference to the import statement to extract the module name from.
-///
-/// # Returns
-///
-/// An ast::Identifier containing the first part of the import statement.
 #[inline]
 fn extract_first_part_of_import(import: &str) -> ast::Identifier {
     import.split('.').next().unwrap_or_default().into()
 }
 
-// Parses the AST of a Python file.
-///
-/// # Arguments
-///
-/// * `file_content` - A reference to the file content to parse.
-///
-/// # Returns
-///
-/// A Result containing the parsed ast::Mod on success, or a ParseError on failure.
 #[inline]
-fn parse_ast(file_content: &str) -> Result<ast::Mod, ParseError> {
+fn parse_python_ast(file_content: &str) -> Result<ast::Mod, ParseError> {
     parse_tokens(lex(file_content, Mode::Module), Mode::Module, "<embedded>")
 }
 
@@ -98,7 +82,7 @@ pub fn get_used_dependencies(dir: &PathBuf) -> Result<Vec<ast::Identifier>> {
                 Err(_) => continue,
             };
 
-            if let Ok(ast) = parse_ast(&file_content) {
+            if let Ok(ast) = parse_python_ast(&file_content) {
                 if let Some(module) = ast.module() {
                     collect_imports(&module.body, &mut used_dependencies);
                 }
@@ -214,11 +198,34 @@ pub fn get_site_packages() -> Result<SitePackagesDir> {
         .ok()
         .and_then(|path| path.split('/').last().map(String::from));
 
+    if venv_name.is_none() {
+        let user_input = {
+            Confirm::new()
+        .with_prompt(
+            "No virtual environment detected. You might be using the system Python. Continue?",
+        )
+        .interact()
+        .unwrap()
+        };
+
+        if !user_input {
+            print_error("Exiting...");
+            ExitCode::GeneralError.exit();
+        }
+    } else {
+        eprintln!(
+            "Virtual environment detected: {}",
+            &venv_name.clone().unwrap()
+        );
+    }
+
     Ok(SitePackagesDir {
         path: dir,
         venv_name,
     })
 }
+
+pub fn get_installed_deps() {}
 
 #[cfg(test)]
 mod tests {
@@ -249,6 +256,25 @@ mod tests {
         Ok(temp_dir)
     }
 
+    // #[test]
+    // fn check_that_mapped_installed_deps_are_correct() {
+    //     let temp_dir = create_working_directory(&["dir1", "dir2"], None).unwrap();
+    //     let base_directory = temp_dir.path().join("dir1");
+    //     let file_path = base_directory.join("pyproject.toml");
+    //     let mut file = File::create(&file_path).unwrap();
+    //     file.write_all(
+    //         r#"
+    //         [tool.poetry.dependencies]
+    //         requests = "2.25.1"
+    //         python = "^3.8"
+    //         "#
+    //         .as_bytes(),
+    //     )
+    //     .unwrap();
+
+    // let site_packages_directory = get_site_packages().unwrap();
+    // let installed_deps = get_installed_deps();
+
     #[test]
     fn test_extract_first_part_of_import() {
         let import = "os.path";
@@ -266,15 +292,15 @@ mod tests {
     #[test]
     fn parse_ast_working() {
         let file_content = "import os";
-        let ast = parse_ast(file_content);
+        let ast = parse_python_ast(file_content);
         assert!(ast.is_ok());
 
         let file_content = "import os, sys";
-        let ast = parse_ast(file_content);
+        let ast = parse_python_ast(file_content);
         assert!(ast.is_ok());
 
         let file_content = "import os";
-        let ast = parse_ast(file_content).unwrap();
+        let ast = parse_python_ast(file_content).unwrap();
 
         assert_eq!(ast.clone().module().unwrap().body.len(), 1);
 
@@ -289,13 +315,13 @@ mod tests {
     #[test]
     fn parse_ast_failing() {
         let file_content = "import os,";
-        let ast = parse_ast(file_content);
+        let ast = parse_python_ast(file_content);
         assert!(ast.is_err());
     }
     #[test]
     fn collect_imports_success() {
         let file_content = "import os";
-        let ast = parse_ast(file_content).unwrap();
+        let ast = parse_python_ast(file_content).unwrap();
         let body = &ast.module().unwrap().body;
         let mut temp_deps_set: HashSet<ast::Identifier> = HashSet::new();
         collect_imports(body, &mut temp_deps_set);
@@ -303,7 +329,7 @@ mod tests {
         assert!(temp_deps_set.contains(&ast::Identifier::new("os")));
 
         let file_content = "import os, sys";
-        let ast = parse_ast(file_content).unwrap();
+        let ast = parse_python_ast(file_content).unwrap();
         let body = &ast.module().unwrap().body;
         let mut temp_deps_set: HashSet<ast::Identifier> = HashSet::new();
         collect_imports(body, &mut temp_deps_set);
@@ -312,7 +338,7 @@ mod tests {
         assert!(temp_deps_set.contains(&ast::Identifier::new("sys")));
 
         let file_content = "from os import path";
-        let ast: ast::Mod = parse_ast(file_content).unwrap();
+        let ast: ast::Mod = parse_python_ast(file_content).unwrap();
         let body = &ast.module().unwrap().body;
         let mut temp_deps_set: HashSet<ast::Identifier> = HashSet::new();
         collect_imports(body, &mut temp_deps_set);
@@ -323,11 +349,11 @@ mod tests {
     #[test]
     fn collect_imports_failure() {
         let file_content = "import os,";
-        let ast = parse_ast(file_content);
+        let ast = parse_python_ast(file_content);
         assert!(ast.is_err());
 
         let file_content = "from os import path, sys";
-        let ast = parse_ast(file_content).unwrap();
+        let ast = parse_python_ast(file_content).unwrap();
         let body = &ast.module().unwrap().body;
         let mut temp_deps_set: HashSet<ast::Identifier> = HashSet::new();
         collect_imports(body, &mut temp_deps_set);
