@@ -209,7 +209,7 @@ pub fn get_site_packages() -> Result<SitePackagesDir> {
         };
 
         if !user_input {
-            print_error("Exiting...");
+            // print_error("Exiting...");
             ExitCode::GeneralError.exit();
         }
     } else {
