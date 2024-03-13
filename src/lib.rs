@@ -426,4 +426,13 @@ mod tests {
             version: "^3.8".to_string()
         }));
     }
+
+    #[test]
+    fn get_site_packages_dir_success() {
+        // By default, regardless of the OS, the site-packages directory is always in the user's home directory.
+        // Typically it looks like this:
+        // /username/.local/lib/python3.8/site-packages
+        let site_packages_dir = get_site_packages_dir().unwrap();
+        assert!(site_packages_dir.contains("site-packages"));
+    }
 }
