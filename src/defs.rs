@@ -10,6 +10,5 @@ pub struct Package {
 #[derive(Deserialize, Debug, PartialEq)]
 pub struct SitePackagesDir {
     pub path: String,
-    pub is_venv: bool,
     pub venv_name: Option<String>,
 }

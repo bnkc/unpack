@@ -210,14 +210,12 @@ pub fn get_site_packages() -> Result<SitePackagesDir> {
         .trim()
         .to_string();
 
-    let is_venv = env::var("VIRTUAL_ENV").is_ok();
     let venv_name = env::var("VIRTUAL_ENV")
         .ok()
         .and_then(|path| path.split('/').last().map(String::from));
 
     Ok(SitePackagesDir {
         path: dir,
-        is_venv,
         venv_name,
     })
 }
@@ -447,7 +445,6 @@ mod tests {
         assert!(!site_packages.path.is_empty());
 
         let is_venv = env::var("VIRTUAL_ENV").is_ok();
-        assert_eq!(site_packages.is_venv, is_venv);
 
         if is_venv {
             let venv_name = env::var("VIRTUAL_ENV")
@@ -464,6 +461,5 @@ mod tests {
         env::set_var("VIRTUAL_ENV", venv_path.to_str().unwrap());
         let site_packages = get_site_packages().unwrap();
         assert_eq!(site_packages.venv_name, Some(venv_name.to_string()));
-        assert!(site_packages.is_venv);
     }
 }
