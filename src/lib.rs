@@ -191,32 +191,21 @@ pub fn get_packages_from_pyproject_toml(file: &PathBuf) -> Result<Vec<Package>> 
 // This directory is automatically added to the module search path by the site module.
 // In our case, we need we will use std::process::Command to execute the python -m site --user-site command to get the site-packages directory.
 // In the future it would be cool to implement this in Rust
-pub fn get_site_packages_dir() -> Result<String, String> {
+pub fn get_site_packages_dir() -> Result<String> {
     let output = Command::new("python")
         .arg("-m")
         .arg("site")
         .arg("--user-site")
-        .output();
+        .output()
+        .with_context(|| "Could not get site-packages directory")?;
 
-    println!("{:?}", output);
-    // match output {
-    //     Ok(output) => {
-    //         if output.status.success() {
-    //             let path_str = str::from_utf8(&output.stdout)
-    //                 .map_err(|e| e.to_string())?
-    //                 .trim()
-    //                 .to_string();
-    //             Ok(path_str)
-    //         } else {
-    //             let error_message = str::from_utf8(&output.stderr).map_err(|e| e.to_string())?;
-    //             Err(format!(
-    //                 "Failed to get site-packages directory: {}",
-    //                 error_message
-    //             ))
-    //         }
-    //     }
-    //     Err(e) => Err(format!("Failed to execute python command: {}", e)),
-    // }
+    let site_packages_dir = str::from_utf8(&output.stdout);
+    match site_packages_dir {
+        Ok(dir) => Ok(dir.trim().to_string()),
+        Err(_) => Err(anyhow!(
+            "Could not get site-packages directory. Are you sure Python is installed?"
+        )),
+    }
 }
 
 #[cfg(test)]
