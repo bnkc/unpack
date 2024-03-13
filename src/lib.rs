@@ -10,6 +10,7 @@ use error::print_error;
 use exit_codes::ExitCode;
 use log::{info, warn};
 
+use colored::Colorize;
 use std::process::Command;
 use std::str;
 
@@ -198,25 +199,27 @@ pub fn get_site_packages() -> Result<SitePackagesDir> {
         .ok()
         .and_then(|path| path.split('/').last().map(String::from));
 
-    if venv_name.is_none() {
-        let user_input = {
-            Confirm::new()
-        .with_prompt(
-            "No virtual environment detected. You might be using the system Python. Continue?",
-        )
-        .interact()
-        .unwrap()
-        };
+    // For testing purposes, we don't want to prompt the user. I'm not sure if this is the best way to do this.
+    if env::var("RUNNING_TESTS").is_ok() {
+        return Ok(SitePackagesDir {
+            path: dir,
+            venv_name,
+        });
+    }
+    let message = match &venv_name {
+        Some(name) => format!("Virtual environment '{}' detected. Continue?", name),
+        None => "WARNING: No virtual environment detected. You might be using the system Python. Continue?"
+        .to_string()
 
-        if !user_input {
-            // print_error("Exiting...");
-            ExitCode::GeneralError.exit();
-        }
-    } else {
-        eprintln!(
-            "Virtual environment detected: {}",
-            &venv_name.clone().unwrap()
-        );
+    };
+
+    let user_input = Confirm::new()
+        .with_prompt(message)
+        .interact()
+        .context("Failed to get user input.")?;
+
+    if !user_input {
+        ExitCode::GeneralError.exit();
     }
 
     Ok(SitePackagesDir {
@@ -467,6 +470,8 @@ mod tests {
 
     #[test]
     fn get_get_site_packages_success() {
+        std::env::set_var("RUNNING_TESTS", "1");
+
         let site_packages = get_site_packages().unwrap();
         assert!(!site_packages.path.is_empty());
 
