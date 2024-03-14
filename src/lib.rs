@@ -3,26 +3,21 @@ mod error;
 mod exit_codes;
 
 use anyhow::{anyhow, Context, Result};
-
+use colored::Colorize;
 use defs::{Package, SitePackagesDir};
 use dialoguer::Confirm;
 use error::print_error;
 use exit_codes::ExitCode;
-use log::{info, warn};
-
-use colored::Colorize;
-use std::process::Command;
-use std::str;
-
+use glob::glob;
 use rustpython_parser::{ast, lexer::lex, parse_tokens, Mode, ParseError};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use toml::Value;
-
-use std::env;
-
+use std::process::Command;
+use std::str;
 use toml::Table;
+use toml::Value;
 use walkdir::WalkDir;
 
 #[inline]
@@ -173,7 +168,7 @@ pub fn get_packages_from_pyproject_toml(file: &PathBuf) -> Result<Vec<Package>> 
     Ok(pkgs)
 }
 
-// Gets the site-packages directory + venv name for the current Python environment.
+// Gets the site-packages directory + Option<venv> name for the current Python environment.
 ///
 /// # Returns
 ///     
@@ -199,7 +194,7 @@ pub fn get_site_packages() -> Result<SitePackagesDir> {
         .ok()
         .and_then(|path| path.split('/').last().map(String::from));
 
-    // For testing purposes, we don't want to prompt the user. I'm not sure if this is the best way to do this.
+    // For testing purposes, we don't want to prompt the user.
     if env::var("RUNNING_TESTS").is_ok() {
         return Ok(SitePackagesDir {
             path: dir,
@@ -208,9 +203,10 @@ pub fn get_site_packages() -> Result<SitePackagesDir> {
     }
     let message = match &venv_name {
         Some(name) => format!("Virtual environment '{}' detected. Continue?", name),
-        None => "WARNING: No virtual environment detected. You might be using the system Python. Continue?"
-        .to_string()
-
+        None => "WARNING: No virtual environment detected. Results may be inaccurate. Continue?"
+            .red()
+            .bold()
+            .to_string(),
     };
 
     let user_input = Confirm::new()
@@ -228,7 +224,49 @@ pub fn get_site_packages() -> Result<SitePackagesDir> {
     })
 }
 
-pub fn get_installed_deps() {}
+pub fn get_installed_deps() -> Result<HashMap<String, HashSet<String>>> {
+    let site_packages_dir = get_site_packages()?;
+    let mut name_imports_mapping: HashMap<String, HashSet<String>> = HashMap::new();
+
+    let site_packages_path = PathBuf::from(site_packages_dir.path);
+    let glob_pattern = site_packages_path
+        .join("*-info")
+        .to_string_lossy()
+        .into_owned();
+
+    println!("here is my test {:?}", glob_pattern);
+    for entry in glob(&glob_pattern)? {
+        let info_dir = entry?;
+        let pkg_name = info_dir
+            .file_stem()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split("-")
+            .next()
+            .unwrap()
+            .to_string();
+
+        let top_level_path = info_dir.join("top_level.txt");
+        if top_level_path.exists() {
+            let import_names = fs::read_to_string(top_level_path)?
+                .lines()
+                .map(|line| line.trim().to_string())
+                .collect::<HashSet<String>>();
+            name_imports_mapping
+                .entry(pkg_name)
+                .or_default()
+                .extend(import_names);
+        } else {
+            name_imports_mapping
+                .entry(pkg_name.clone())
+                .or_default()
+                .insert(pkg_name);
+        }
+    }
+
+    Ok(name_imports_mapping)
+}
 
 #[cfg(test)]
 mod tests {
