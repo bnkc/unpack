@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExitCode {
     Success,
@@ -19,7 +18,7 @@ impl From<ExitCode> for i32 {
 }
 
 impl ExitCode {
-    fn is_error(self) -> bool {
+    pub fn is_error(self) -> bool {
         i32::from(self) != 0
     }
 
@@ -29,6 +28,7 @@ impl ExitCode {
     }
 }
 
+#[allow(dead_code)]
 pub fn merge_exitcodes(results: impl IntoIterator<Item = ExitCode>) -> ExitCode {
     if results.into_iter().any(ExitCode::is_error) {
         return ExitCode::GeneralError;

@@ -30,7 +30,7 @@ fn parse_python_ast(file_content: &str) -> Result<ast::Mod, ParseError> {
     parse_tokens(lex(file_content, Mode::Module), Mode::Module, "<embedded>")
 }
 
-// Collects identifiers from import statements in the specified AST.
+// Recursively Collects identifiers from import statements in the specified AST.
 ///
 /// # Arguments
 ///
@@ -99,7 +99,7 @@ pub fn get_used_dependencies(dir: &PathBuf) -> Result<Vec<ast::Identifier>> {
 /// # Returns
 ///
 /// A boolean indicating whether the dependency specification files were found.
-pub fn get_dependency_specification_file(base_directory: &Path) -> anyhow::Result<PathBuf> {
+pub fn get_dependency_specification_file(base_directory: &Path) -> Result<PathBuf> {
     let file = base_directory.ancestors().find_map(|directory| {
         let files = vec!["requirements.txt", "pyproject.toml"];
         files
@@ -238,6 +238,10 @@ pub fn get_site_packages() -> Result<SitePackages> {
 }
 
 // Gets the installed dependencies from the site-packages directory.
+///
+/// # Arguments
+///
+/// * `site_pkgs` - A reference to the SitePackagesDir to search within.
 ///
 /// # Returns
 ///     

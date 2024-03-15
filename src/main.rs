@@ -58,8 +58,8 @@ fn run() -> Result<ExitCode> {
 
     set_project_dir(&opts)?;
 
-    let deps_file = get_dependency_specification_file(&opts.base_directory)?;
-    let packages = get_packages_from_pyproject_toml(&deps_file);
+    // let deps_file = get_dependency_specification_file(&opts.base_directory)?;
+    // let packages = get_packages_from_pyproject_toml(&deps_file);
     // use packages or end it here
 
     let site_pkgs = get_site_packages()?;
