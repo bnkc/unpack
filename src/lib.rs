@@ -4,7 +4,7 @@ mod exit_codes;
 
 use anyhow::{anyhow, Context, Result};
 use colored::Colorize;
-use defs::{Package, PackageInfo, SitePackages};
+use defs::{Package, SitePackages};
 use dialoguer::Confirm;
 use error::print_error;
 use exit_codes::ExitCode;
@@ -237,6 +237,15 @@ pub fn get_site_packages() -> Result<SitePackages> {
     })
 }
 
+// Gets the installed dependencies from the site-packages directory.
+///
+/// # Returns
+///     
+/// A Result containing a HashMap of package names to HashSet of import names on success, or an ExitCode on failure.
+///     
+/// # Errors
+///
+/// * ExitCode::GeneralError - If the site-packages directory could not be read or the top_level.txt files could not be read.
 pub fn get_installed_deps() -> Result<HashMap<String, HashSet<String>>> {
     let site_packages = get_site_packages()?;
     let mut mapping: HashMap<String, HashSet<String>> = HashMap::new();
