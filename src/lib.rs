@@ -4,7 +4,7 @@ mod exit_codes;
 
 use anyhow::{anyhow, Context, Result};
 use colored::Colorize;
-use defs::{Package, SitePackagesDir};
+use defs::{Package, PackageInfo, SitePackages};
 use dialoguer::Confirm;
 use error::print_error;
 use exit_codes::ExitCode;
@@ -177,18 +177,30 @@ pub fn get_packages_from_pyproject_toml(file: &PathBuf) -> Result<Vec<Package>> 
 /// # Errors
 ///
 /// * ExitCode::GeneralError - If the Python command failed to execute.
-pub fn get_site_packages() -> Result<SitePackagesDir> {
-    let output = Command::new("python")
-        .arg("-m")
-        .arg("site")
-        .arg("--user-site")
-        .output()
-        .context("Failed to execute python command. Is Python installed?")?;
+pub fn get_site_packages() -> Result<SitePackages> {
+    let output = match Command::new("python").arg("-m").arg("site").output() {
+        Ok(o) => o,
+        Err(_) => {
+            print_error(format!(
+                "Failed to execute `python -m site`. Are you sure Python is installed?"
+            ));
+            ExitCode::GeneralError.exit();
+        }
+    };
 
-    let dir = str::from_utf8(&output.stdout)
+    let output_str = str::from_utf8(&output.stdout)
         .context("Output was not valid UTF-8.")?
-        .trim()
-        .to_string();
+        .trim();
+
+    let pkg_paths: Vec<String> = output_str
+        .lines()
+        // Ensure the line contains "site-packages" and does not start with known non-path prefixes
+        .filter(|line| {
+            line.contains("site-packages") && !line.trim_start().starts_with("USER_SITE:")
+        })
+        .map(|s| s.trim_matches(|c: char| c.is_whitespace() || c == '\'' || c == ',')) // Clean up the line
+        .map(ToString::to_string) // Convert &str to String
+        .collect();
 
     let venv_name = env::var("VIRTUAL_ENV")
         .ok()
@@ -196,17 +208,18 @@ pub fn get_site_packages() -> Result<SitePackagesDir> {
 
     // For testing purposes, we don't want to prompt the user.
     if env::var("RUNNING_TESTS").is_ok() {
-        return Ok(SitePackagesDir {
-            path: dir,
+        return Ok(SitePackages {
+            paths: pkg_paths,
             venv_name,
         });
     }
     let message = match &venv_name {
         Some(name) => format!("Virtual environment '{}' detected. Continue?", name),
-        None => "WARNING: No virtual environment detected. Results may be inaccurate. Continue?"
-            .red()
-            .bold()
-            .to_string(),
+        None => format!(
+            "WARNING: No virtual environment detected. Results may be inaccurate. Continue?"
+        )
+        .red()
+        .to_string(),
     };
 
     let user_input = Confirm::new()
@@ -218,54 +231,45 @@ pub fn get_site_packages() -> Result<SitePackagesDir> {
         ExitCode::GeneralError.exit();
     }
 
-    Ok(SitePackagesDir {
-        path: dir,
+    Ok(SitePackages {
+        paths: pkg_paths,
         venv_name,
     })
 }
 
 pub fn get_installed_deps() -> Result<HashMap<String, HashSet<String>>> {
-    let site_packages_dir = get_site_packages()?;
-    let mut name_imports_mapping: HashMap<String, HashSet<String>> = HashMap::new();
+    let site_packages = get_site_packages()?;
+    let mut mapping: HashMap<String, HashSet<String>> = HashMap::new();
 
-    let site_packages_path = PathBuf::from(site_packages_dir.path);
-    let glob_pattern = site_packages_path
-        .join("*-info")
-        .to_string_lossy()
-        .into_owned();
+    for path in site_packages.paths {
+        let glob_pattern = format!("{}/{}-info", path, "*");
+        for entry in glob(&glob_pattern).context("Failed to read glob pattern")? {
+            let info_dir = entry.context("Invalid glob entry")?;
+            let pkg_name = info_dir
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .and_then(|s| s.split('-').next())
+                .ok_or_else(|| anyhow::anyhow!("Invalid package name format"))
+                .map(ToString::to_string)?;
 
-    println!("here is my test {:?}", glob_pattern);
-    for entry in glob(&glob_pattern)? {
-        let info_dir = entry?;
-        let pkg_name = info_dir
-            .file_stem()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .split("-")
-            .next()
-            .unwrap()
-            .to_string();
+            let top_level_path = info_dir.join("top_level.txt");
 
-        let top_level_path = info_dir.join("top_level.txt");
-        if top_level_path.exists() {
-            let import_names = fs::read_to_string(top_level_path)?
-                .lines()
-                .map(|line| line.trim().to_string())
-                .collect::<HashSet<String>>();
-            name_imports_mapping
-                .entry(pkg_name)
-                .or_default()
-                .extend(import_names);
-        } else {
-            name_imports_mapping
-                .entry(pkg_name.clone())
-                .or_default()
-                .insert(pkg_name);
+            let import_names = if top_level_path.exists() {
+                fs::read_to_string(&top_level_path)?
+                    .lines()
+                    .map(str::trim)
+                    .map(ToString::to_string)
+                    .collect()
+            } else {
+                let mut set = HashSet::new();
+                set.insert(pkg_name.clone());
+                set
+            };
+
+            mapping.entry(pkg_name).or_default().extend(import_names);
         }
     }
-
-    Ok(name_imports_mapping)
+    Ok(mapping)
 }
 
 #[cfg(test)]
@@ -511,7 +515,7 @@ mod tests {
         std::env::set_var("RUNNING_TESTS", "1");
 
         let site_packages = get_site_packages().unwrap();
-        assert!(!site_packages.path.is_empty());
+        assert!(!site_packages.paths[0].is_empty());
 
         let is_venv = env::var("VIRTUAL_ENV").is_ok();
 

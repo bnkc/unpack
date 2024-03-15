@@ -11,7 +11,6 @@ use std::env;
 
 use pip_udeps::{
     get_dependency_specification_file, get_installed_deps, get_packages_from_pyproject_toml,
-    get_site_packages,
 };
 use std::path::PathBuf;
 
