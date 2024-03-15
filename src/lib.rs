@@ -168,91 +168,73 @@ pub fn get_packages_from_pyproject_toml(file: &PathBuf) -> Result<Vec<Package>> 
     Ok(pkgs)
 }
 
-trait SitePackageProvider {
-    fn get_site_packages(&self) -> Result<SitePackages>;
-}
-
-struct MockSitePackageProvider {
-    mock_data: SitePackages,
-}
-
-impl SitePackageProvider for MockSitePackageProvider {
-    fn get_site_packages(&self) -> Result<SitePackages> {
-        Ok(self.mock_data.clone())
-    }
-}
-
-struct RealSitePackageProvider;
-
-impl SitePackageProvider for RealSitePackageProvider {
-    // Gets the site-packages directory + Option<venv> name for the current Python environment.
-    ///
-    /// # Returns
-    ///     
-    /// A Result containing a SitePackagesDir on success, or an ExitCode on failure.
-    ///     
-    /// # Errors
-    ///
-    /// * ExitCode::GeneralError - If the Python command failed to execute.
-    fn get_site_packages(&self) -> Result<SitePackages> {
-        let output = match Command::new("python").arg("-m").arg("site").output() {
-            Ok(o) => o,
-            Err(_) => {
-                print_error(format!(
-                    "Failed to execute `python -m site`. Are you sure Python is installed?"
-                ));
-                ExitCode::GeneralError.exit();
-            }
-        };
-
-        let output_str = str::from_utf8(&output.stdout)
-            .context("Output was not valid UTF-8.")?
-            .trim();
-
-        let pkg_paths: Vec<String> = output_str
-            .lines()
-            // Ensure the line contains "site-packages" and does not start with known non-path prefixes
-            .filter(|line| {
-                line.contains("site-packages") && !line.trim_start().starts_with("USER_SITE:")
-            })
-            .map(|s| s.trim_matches(|c: char| c.is_whitespace() || c == '\'' || c == ',')) // Clean up the line
-            .map(ToString::to_string) // Convert &str to String
-            .collect();
-
-        let venv_name = env::var("VIRTUAL_ENV")
-            .ok()
-            .and_then(|path| path.split('/').last().map(String::from));
-
-        // For testing purposes, we don't want to prompt the user.
-        if env::var("RUNNING_TESTS").is_ok() {
-            return Ok(SitePackages {
-                paths: pkg_paths,
-                venv_name,
-            });
-        }
-        let message = match &venv_name {
-            Some(name) => format!("Virtual environment '{}' detected. Continue?", name),
-            None => format!(
-                "WARNING: No virtual environment detected. Results may be inaccurate. Continue?"
-            )
-            .red()
-            .to_string(),
-        };
-
-        let user_input = Confirm::new()
-            .with_prompt(message)
-            .interact()
-            .context("Failed to get user input.")?;
-
-        if !user_input {
+// Gets the site-packages directory + Option<venv> name for the current Python environment.
+///
+/// # Returns
+///     
+/// A Result containing a SitePackagesDir on success, or an ExitCode on failure.
+///     
+/// # Errors
+///
+/// * ExitCode::GeneralError - If the Python command failed to execute.
+pub fn get_site_packages() -> Result<SitePackages> {
+    let output = match Command::new("python").arg("-m").arg("site").output() {
+        Ok(o) => o,
+        Err(_) => {
+            print_error(format!(
+                "Failed to execute `python -m site`. Are you sure Python is installed?"
+            ));
             ExitCode::GeneralError.exit();
         }
+    };
 
-        Ok(SitePackages {
+    let output_str = str::from_utf8(&output.stdout)
+        .context("Output was not valid UTF-8.")?
+        .trim();
+
+    let pkg_paths: Vec<String> = output_str
+        .lines()
+        // Ensure the line contains "site-packages" and does not start with known non-path prefixes
+        .filter(|line| {
+            line.contains("site-packages") && !line.trim_start().starts_with("USER_SITE:")
+        })
+        .map(|s| s.trim_matches(|c: char| c.is_whitespace() || c == '\'' || c == ',')) // Clean up the line
+        .map(ToString::to_string) // Convert &str to String
+        .collect();
+
+    let venv_name = env::var("VIRTUAL_ENV")
+        .ok()
+        .and_then(|path| path.split('/').last().map(String::from));
+
+    // For testing purposes, we don't want to prompt the user.
+    if env::var("RUNNING_TESTS").is_ok() {
+        return Ok(SitePackages {
             paths: pkg_paths,
             venv_name,
-        })
+        });
     }
+    let message = match &venv_name {
+        Some(name) => format!("Virtual environment '{}' detected. Continue?", name),
+        None => format!(
+            "WARNING: No virtual environment detected. Results may be inaccurate. Continue?"
+        )
+        .red()
+        .to_string(),
+    };
+
+    let user_input = Confirm::new()
+        .with_prompt(message)
+        .interact()
+        .context("Failed to get user input.")?;
+
+    if !user_input {
+        ExitCode::GeneralError.exit();
+    }
+
+    Ok(SitePackages {
+        paths: pkg_paths,
+        venv_name,
+    })
 }
 
 // Gets the installed dependencies from the site-packages directory.
@@ -264,11 +246,10 @@ impl SitePackageProvider for RealSitePackageProvider {
 /// # Errors
 ///
 /// * ExitCode::GeneralError - If the site-packages directory could not be read or the top_level.txt files could not be read.
-pub fn get_installed_deps() -> Result<HashMap<String, HashSet<String>>> {
-    let site_packages = RealSitePackageProvider.get_site_packages()?;
+pub fn get_installed_deps(site_pkgs: SitePackages) -> Result<HashMap<String, HashSet<String>>> {
     let mut mapping: HashMap<String, HashSet<String>> = HashMap::new();
 
-    for path in site_packages.paths {
+    for path in site_pkgs.paths {
         let glob_pattern = format!("{}/{}-info", path, "*");
         for entry in glob(&glob_pattern).context("Failed to read glob pattern")? {
             let info_dir = entry.context("Invalid glob entry")?;
@@ -522,7 +503,7 @@ mod tests {
     fn get_get_site_packages_success() {
         std::env::set_var("RUNNING_TESTS", "1");
 
-        let site_packages = RealSitePackageProvider.get_site_packages().unwrap();
+        let site_packages = get_site_packages().unwrap();
         assert!(!site_packages.paths[0].is_empty());
 
         let is_venv = env::var("VIRTUAL_ENV").is_ok();
@@ -536,6 +517,7 @@ mod tests {
     }
 
     #[test]
+
     fn check_that_get_installed_deps_works() {
         // Create a temporary environment resembling site-packages
         let temp_dir = tempfile::TempDir::new().unwrap();
@@ -551,48 +533,56 @@ mod tests {
         fs::create_dir_all(&pkg2_dir).unwrap();
         fs::write(pkg2_dir.join("top_level.txt"), "example_pkg2\n").unwrap();
 
-        // Adjust get_site_packages (or mock it) to return the path of our temporary site-packages directory
-        // For the purpose of this example, let's assume get_site_packages is adjustable or mockable.
-        // You might need to modify your actual get_site_packages function or the way you're testing it.
-        // This step depends on how your actual code is structured.
+        // lets do another package like scikit_learn where we know the name will get remapped to sklearn
+        let pkg3_dir = site_packages_dir.join("scikit_learn-0.24.1-info");
+        fs::create_dir_all(&pkg3_dir).unwrap();
+        fs::write(pkg3_dir.join("top_level.txt"), "sklearn\n").unwrap();
 
-        let installed_deps = MockSitePackageProvider {
-            mock_data: SitePackages {
-                paths: vec![
-                    site_packages_dir.to_string_lossy().to_string(),
-                    "/usr/lib/python3.8/site-packages".to_string(),
-                ],
-                venv_name: Some("test-venv".to_string()),
-            },
+        let site_pkgs = SitePackages {
+            paths: vec![
+                site_packages_dir.to_string_lossy().to_string(),
+                "/usr/lib/python3.8/site-packages".to_string(),
+            ],
+            venv_name: Some("test-venv".to_string()),
         };
 
-        assert_eq!(
-            installed_deps.get_site_packages().unwrap().paths.len(),
-            2,
-            "Should have found two installed packages"
-        );
+        let deps = get_installed_deps(site_pkgs).unwrap();
 
-        assert_eq!(
-            installed_deps.get_site_packages().unwrap().venv_name,
-            Some("test-venv".to_string()),
-            "Should have found the correct venv name"
+        assert_eq!(deps.len(), 3, "Should have found two installed packages");
+
+        // Assert that the package names and import names are correct
+        assert!(
+            deps.contains_key("example_pkg1"),
+            "Should contain example_pkg1"
+        );
+        assert!(
+            deps["example_pkg1"].contains("example_pkg1"),
+            "example_pkg1 should be its own import name"
         );
 
         assert!(
-            installed_deps
-                .get_site_packages()
-                .unwrap()
-                .paths
-                .contains(&site_packages_dir.to_string_lossy().to_string()),
-            "Missing example_pkg1"
+            deps.contains_key("example_pkg2"),
+            "Should contain example_pkg2"
         );
         assert!(
-            installed_deps
-                .get_site_packages()
-                .unwrap()
-                .paths
-                .contains(&"/usr/lib/python3.8/site-packages".to_string()),
-            "Missing example_pkg2"
+            deps["example_pkg2"].contains("example_pkg2"),
+            "example_pkg2 should be its own import name"
+        );
+
+        assert!(
+            deps.contains_key("scikit_learn"),
+            "Should contain scikit_learn"
+        );
+
+        assert!(
+            deps["scikit_learn"].contains("sklearn"),
+            "scikit_learn should be remapped to sklearn"
+        );
+
+        // non-existent package
+        assert!(
+            !deps.contains_key("example_pkg4"),
+            "Should not contain example_pkg4"
         );
     }
 }

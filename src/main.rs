@@ -11,6 +11,7 @@ use std::env;
 
 use pip_udeps::{
     get_dependency_specification_file, get_installed_deps, get_packages_from_pyproject_toml,
+    get_site_packages,
 };
 use std::path::PathBuf;
 
@@ -61,9 +62,8 @@ fn run() -> Result<ExitCode> {
     let packages = get_packages_from_pyproject_toml(&deps_file);
     // use packages or end it here
 
-    // let _test = packages;
-    // println!("{:#?}", packages);
-    let deps = get_installed_deps();
+    let site_pkgs = get_site_packages()?;
+    let deps = get_installed_deps(site_pkgs)?;
     println!("{:#?}", deps);
 
     // let my_val = env::var("VIRTUAL_ENV")
