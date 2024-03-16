@@ -10,8 +10,8 @@ use clap::Parser;
 use std::env;
 
 use pip_udeps::{
-    get_deps_specification_file, get_installed_deps, get_pkgs_from_pyproject_toml, get_site_pkgs,
-    get_unused_deps,
+    get_deps_from_pyproject_toml, get_deps_specification_file, get_installed_pkgs,
+    get_site_package_dir, get_unused_deps,
 };
 use std::path::PathBuf;
 

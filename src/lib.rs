@@ -4,7 +4,7 @@ mod exit_codes;
 
 use anyhow::{anyhow, Context, Result};
 use colored::Colorize;
-use defs::{Package, SitePackages};
+use defs::{Dependency, InstalledPackages, SitePackages};
 use dialoguer::Confirm;
 use error::print_error;
 use exit_codes::ExitCode;
@@ -19,6 +19,8 @@ use std::str;
 use toml::Table;
 use toml::Value;
 use walkdir::WalkDir;
+
+const DEFAULT_PKGS: [&str; 5] = ["pip", "setuptools", "wheel", "python", "python_version"];
 
 #[inline]
 fn extract_first_part_of_import(import: &str) -> ast::Identifier {
@@ -124,12 +126,12 @@ pub fn get_deps_specification_file(base_dir: &Path) -> Result<PathBuf> {
 ///
 /// # Returns
 ///
-/// A Result containing a Vec of Package on success, or an ExitCode on failure.
+/// A Result containing a Vec of Dependencies on success, or an ExitCode on failure.
 ///
 /// # Errors
 ///
 /// * ExitCode::GeneralError - If the file could not be read or parsed.
-pub fn get_pkgs_from_pyproject_toml(path: &PathBuf) -> Result<Vec<Package>> {
+pub fn get_deps_from_pyproject_toml(path: &PathBuf) -> Result<Vec<Dependency>> {
     let toml_str = fs::read_to_string(path)?;
 
     let toml: Table = match toml::from_str(&toml_str) {
@@ -147,25 +149,10 @@ pub fn get_pkgs_from_pyproject_toml(path: &PathBuf) -> Result<Vec<Package>> {
         .and_then(|d| d.as_table())
         .ok_or_else(|| anyhow!("Missing `[tool.poetry.dependencies]` section in TOML"))?;
 
-    let pkgs = deps
+    Ok(deps
         .iter()
-        .filter_map(|(name, version)| {
-            let version_str = match version {
-                Value::String(s) => Some(s.to_string()),
-                Value::Table(t) => t
-                    .get("version")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string()),
-                _ => None,
-            };
-            version_str.map(|version| Package {
-                name: name.clone(),
-                version,
-            })
-        })
-        .collect();
-
-    Ok(pkgs)
+        .map(|(name, _)| Dependency { name: name.clone() })
+        .collect())
 }
 
 // Gets the site-packages directory + Option<venv> name for the current Python environment.
@@ -177,7 +164,7 @@ pub fn get_pkgs_from_pyproject_toml(path: &PathBuf) -> Result<Vec<Package>> {
 /// # Errors
 ///
 /// * ExitCode::GeneralError - If the Python command failed to execute.
-pub fn get_site_pkgs() -> Result<SitePackages> {
+pub fn get_site_package_dir() -> Result<SitePackages> {
     let output = match Command::new("python").arg("-m").arg("site").output() {
         Ok(o) => o,
         Err(_) => {
@@ -194,12 +181,11 @@ pub fn get_site_pkgs() -> Result<SitePackages> {
 
     let pkg_paths: Vec<String> = output_str
         .lines()
-        // Ensure the line contains "site-packages" and does not start with known non-path prefixes
         .filter(|line| {
             line.contains("site-packages") && !line.trim_start().starts_with("USER_SITE:")
         })
-        .map(|s| s.trim_matches(|c: char| c.is_whitespace() || c == '\'' || c == ',')) // Clean up the line
-        .map(ToString::to_string) // Convert &str to String
+        .map(|s| s.trim_matches(|c: char| c.is_whitespace() || c == '\'' || c == ','))
+        .map(ToString::to_string)
         .collect();
 
     let venv_name = env::var("VIRTUAL_ENV")
@@ -250,8 +236,8 @@ pub fn get_site_pkgs() -> Result<SitePackages> {
 /// # Errors
 ///
 /// * ExitCode::GeneralError - If the site-packages directory could not be read or the top_level.txt files could not be read.
-pub fn get_installed_deps(site_pkgs: SitePackages) -> Result<HashMap<String, HashSet<String>>> {
-    let mut mapping: HashMap<String, HashSet<String>> = HashMap::new();
+pub fn get_installed_pkgs(site_pkgs: SitePackages) -> Result<InstalledPackages> {
+    let mut installed_pkgs = InstalledPackages::new();
 
     for path in site_pkgs.paths {
         let glob_pattern = format!("{}/{}-info", path, "*");
@@ -262,9 +248,7 @@ pub fn get_installed_deps(site_pkgs: SitePackages) -> Result<HashMap<String, Has
                 .and_then(|stem| stem.to_str())
                 .and_then(|s| s.split('-').next())
                 .ok_or_else(|| anyhow::anyhow!("Invalid package name format"))
-                .map(ToString::to_string)?;
-
-            // let pkg_name = pkg_name.replace("_", "-");
+                .map(|s| s.to_lowercase())?;
 
             let top_level_path = info_dir.join("top_level.txt");
 
@@ -280,44 +264,20 @@ pub fn get_installed_deps(site_pkgs: SitePackages) -> Result<HashMap<String, Has
                 set
             };
 
-            mapping.entry(pkg_name).or_default().extend(import_names);
+            installed_pkgs.add_pkg(pkg_name, import_names);
         }
     }
-    Ok(mapping)
+    Ok(installed_pkgs)
 }
 
 pub fn get_unused_deps(base_dir: &Path) -> Result<ExitCode> {
     let deps_file = get_deps_specification_file(&base_dir)?;
-    let pyproject_packages = get_pkgs_from_pyproject_toml(&deps_file);
+    let pyproject_packages = get_deps_from_pyproject_toml(&deps_file);
 
-    let site_packages = get_site_pkgs()?;
-    let installed_deps: HashMap<String, HashSet<String>> = get_installed_deps(site_packages)?;
-
-    // Need to make installed deps lowercase
-    if let Ok(packages) = pyproject_packages {
-        packages.iter().for_each(|p| {
-            let pkg_name = p.name.replace("-", "_");
-            if !installed_deps.contains_key(&pkg_name) {
-                print_error(format!(
-                    "Package '{}' is listed in pyproject.toml but not installed",
-                    p.name
-                ));
-            }
-        });
-    }
-
-    println!("{:#?}", installed_deps);
-
-    // pyproject_packages.iter().for_each(|p| {
-    //     // in the package name, we need to replace the - with _
-    //     let pkg_name = p.name.replace("-", "_");
-    //     if !installed_deps.contains_key(&pkg_name) {
-    //         print_error(format!(
-    //             "Package '{}' is listed in pyproject.toml but not installed",
-    //             p.name
-    //         ));
-    //     }
-    // });
+    let site_pkgs = get_site_package_dir()?;
+    // println!("{:#?}", site_pkgs);
+    let installed_pkgs = get_installed_pkgs(site_pkgs)?;
+    println!("{:#?}", installed_pkgs);
 
     // let used_dependencies = get_used_deps(base_dir);
 
@@ -516,7 +476,7 @@ mod tests {
 
     // Need to write tests for get_packages_from_pyproject_toml here
     #[test]
-    fn get_packages_from_pyproject_toml_success() {
+    fn get_dependencies_from_pyproject_toml_success() {
         let temp_dir =
             create_working_directory(&["dir1", "dir2"], Some(&["pyproject.toml"])).unwrap();
         let base_directory = temp_dir.path().join("dir1");
@@ -532,23 +492,21 @@ mod tests {
         )
         .unwrap();
 
-        let packages = get_pkgs_from_pyproject_toml(&file_path).unwrap();
+        let packages = get_deps_from_pyproject_toml(&file_path).unwrap();
         assert_eq!(packages.len(), 2);
-        assert!(packages.contains(&Package {
-            name: "requests".to_string(),
-            version: "2.25.1".to_string()
+        assert!(packages.contains(&Dependency {
+            name: "requests".to_string()
         }));
-        assert!(packages.contains(&Package {
-            name: "python".to_string(),
-            version: "^3.8".to_string()
+        assert!(packages.contains(&Dependency {
+            name: "python".to_string()
         }));
     }
 
     #[test]
-    fn get_get_site_packages_success() {
+    fn get_site_package_dir_success() {
         std::env::set_var("RUNNING_TESTS", "1");
 
-        let site_packages = get_site_pkgs().unwrap();
+        let site_packages = get_site_package_dir().unwrap();
         assert!(!site_packages.paths[0].is_empty());
 
         let is_venv = env::var("VIRTUAL_ENV").is_ok();
@@ -563,7 +521,7 @@ mod tests {
 
     #[test]
 
-    fn check_that_get_installed_deps_works() {
+    fn check_that_get_installed_pkgs_works() {
         // Create a temporary environment resembling site-packages
         let temp_dir = tempfile::TempDir::new().unwrap();
         let site_packages_dir = temp_dir.path().join("site-packages");
@@ -591,43 +549,56 @@ mod tests {
             venv_name: Some("test-venv".to_string()),
         };
 
-        let deps = get_installed_deps(site_pkgs).unwrap();
+        let installed_pkgs = get_installed_pkgs(site_pkgs).unwrap();
 
-        assert_eq!(deps.len(), 3, "Should have found two installed packages");
+        assert_eq!(
+            installed_pkgs.mapping.len(),
+            3,
+            "Should have found two installed packages"
+        );
 
         // Assert that the package names and import names are correct
         assert!(
-            deps.contains_key("example_pkg1"),
+            installed_pkgs.get_pkg("example-pkg1").is_some(),
             "Should contain example_pkg1"
         );
-        assert!(
-            deps["example_pkg1"].contains("example_pkg1"),
-            "example_pkg1 should be its own import name"
-        );
 
         assert!(
-            deps.contains_key("example_pkg2"),
+            installed_pkgs
+                .get_pkg("example-pkg1")
+                .unwrap()
+                .contains("example_pkg1"),
+            "example-pkg1 should contain example_pkg1"
+        );
+        assert!(
+            installed_pkgs.get_pkg("example-pkg2").is_some(),
             "Should contain example_pkg2"
         );
+
         assert!(
-            deps["example_pkg2"].contains("example_pkg2"),
-            "example_pkg2 should be its own import name"
+            installed_pkgs
+                .get_pkg("example-pkg2")
+                .unwrap()
+                .contains("example_pkg2"),
+            "example-pkg2 should contain example_pkg2"
         );
 
         assert!(
-            deps.contains_key("scikit_learn"),
+            installed_pkgs.get_pkg("scikit-learn").is_some(),
             "Should contain scikit_learn"
         );
 
         assert!(
-            deps["scikit_learn"].contains("sklearn"),
-            "scikit_learn should be remapped to sklearn"
+            installed_pkgs
+                .get_pkg("scikit-learn")
+                .unwrap()
+                .contains("sklearn"),
+            "scikit_learn should contain sklearn"
         );
-
         // non-existent package
         assert!(
-            !deps.contains_key("example_pkg4"),
-            "Should not contain example_pkg4"
+            installed_pkgs.get_pkg("non-existent").is_none(),
+            "Should not contain non-existent"
         );
     }
 }
