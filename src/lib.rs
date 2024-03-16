@@ -264,6 +264,8 @@ pub fn get_installed_deps(site_pkgs: SitePackages) -> Result<HashMap<String, Has
                 .ok_or_else(|| anyhow::anyhow!("Invalid package name format"))
                 .map(ToString::to_string)?;
 
+            // let pkg_name = pkg_name.replace("_", "-");
+
             let top_level_path = info_dir.join("top_level.txt");
 
             let import_names = if top_level_path.exists() {
@@ -291,11 +293,33 @@ pub fn get_unused_deps(base_dir: &Path) -> Result<ExitCode> {
     let site_packages = get_site_pkgs()?;
     let installed_deps: HashMap<String, HashSet<String>> = get_installed_deps(site_packages)?;
 
-    // First thing we need to do is compare the installed deps with the pyproject.toml deps
-    // If there are any packages in the pyproject.toml that are not installed, we should error out as
-    // the python project shouldnt be able to run without them anyways
+    // Need to make installed deps lowercase
+    if let Ok(packages) = pyproject_packages {
+        packages.iter().for_each(|p| {
+            let pkg_name = p.name.replace("-", "_");
+            if !installed_deps.contains_key(&pkg_name) {
+                print_error(format!(
+                    "Package '{}' is listed in pyproject.toml but not installed",
+                    p.name
+                ));
+            }
+        });
+    }
 
-    let used_dependencies = get_used_deps(base_dir);
+    println!("{:#?}", installed_deps);
+
+    // pyproject_packages.iter().for_each(|p| {
+    //     // in the package name, we need to replace the - with _
+    //     let pkg_name = p.name.replace("-", "_");
+    //     if !installed_deps.contains_key(&pkg_name) {
+    //         print_error(format!(
+    //             "Package '{}' is listed in pyproject.toml but not installed",
+    //             p.name
+    //         ));
+    //     }
+    // });
+
+    // let used_dependencies = get_used_deps(base_dir);
 
     // this is temporary
     Ok(ExitCode::Success)
