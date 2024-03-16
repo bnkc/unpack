@@ -67,9 +67,9 @@ fn collect_imports(stmts: &[ast::Stmt], deps_set: &mut HashSet<ast::Identifier>)
 /// # Returns
 ///
 /// A Result containing a Vec of ast::Identifier on success, or an std::io::Error on failure.
-pub fn get_used_dependencies(dir: &PathBuf) -> Result<Vec<ast::Identifier>> {
+pub fn get_used_deps(dir: &Path) -> Result<Vec<ast::Identifier>> {
     let walker: walkdir::IntoIter = WalkDir::new(dir).into_iter();
-    let mut used_dependencies = HashSet::new();
+    let mut used_deps = HashSet::new();
 
     for entry in walker.filter_map(|e| e.ok()) {
         if entry.file_name().to_string_lossy().ends_with(".py") {
@@ -80,13 +80,13 @@ pub fn get_used_dependencies(dir: &PathBuf) -> Result<Vec<ast::Identifier>> {
 
             if let Ok(ast) = parse_python_ast(&file_content) {
                 if let Some(module) = ast.module() {
-                    collect_imports(&module.body, &mut used_dependencies);
+                    collect_imports(&module.body, &mut used_deps);
                 }
             }
         }
     }
 
-    Ok(used_dependencies.into_iter().collect())
+    Ok(used_deps.into_iter().collect())
 }
 
 // Checks for dependency specification files in the specified directory or any parent directories.
@@ -99,12 +99,12 @@ pub fn get_used_dependencies(dir: &PathBuf) -> Result<Vec<ast::Identifier>> {
 /// # Returns
 ///
 /// A boolean indicating whether the dependency specification files were found.
-pub fn get_dependency_specification_file(base_directory: &Path) -> Result<PathBuf> {
-    let file = base_directory.ancestors().find_map(|directory| {
+pub fn get_deps_specification_file(base_dir: &Path) -> Result<PathBuf> {
+    let file = base_dir.ancestors().find_map(|dir| {
         let files = vec!["requirements.txt", "pyproject.toml"];
         files
             .into_iter()
-            .map(|file_name| directory.join(file_name))
+            .map(|file_name| dir.join(file_name))
             .find(|file_path| file_path.exists())
     });
 
@@ -129,8 +129,8 @@ pub fn get_dependency_specification_file(base_directory: &Path) -> Result<PathBu
 /// # Errors
 ///
 /// * ExitCode::GeneralError - If the file could not be read or parsed.
-pub fn get_packages_from_pyproject_toml(file: &PathBuf) -> Result<Vec<Package>> {
-    let toml_str = fs::read_to_string(file)?;
+pub fn get_pkgs_from_pyproject_toml(path: &PathBuf) -> Result<Vec<Package>> {
+    let toml_str = fs::read_to_string(path)?;
 
     let toml: Table = match toml::from_str(&toml_str) {
         Ok(t) => t,
@@ -140,14 +140,14 @@ pub fn get_packages_from_pyproject_toml(file: &PathBuf) -> Result<Vec<Package>> 
         }
     };
 
-    let dependencies = toml
+    let deps = toml
         .get("tool")
         .and_then(|t| t.get("poetry"))
         .and_then(|p| p.get("dependencies"))
         .and_then(|d| d.as_table())
         .ok_or_else(|| anyhow!("Missing `[tool.poetry.dependencies]` section in TOML"))?;
 
-    let pkgs = dependencies
+    let pkgs = deps
         .iter()
         .filter_map(|(name, version)| {
             let version_str = match version {
@@ -177,7 +177,7 @@ pub fn get_packages_from_pyproject_toml(file: &PathBuf) -> Result<Vec<Package>> 
 /// # Errors
 ///
 /// * ExitCode::GeneralError - If the Python command failed to execute.
-pub fn get_site_packages() -> Result<SitePackages> {
+pub fn get_site_pkgs() -> Result<SitePackages> {
     let output = match Command::new("python").arg("-m").arg("site").output() {
         Ok(o) => o,
         Err(_) => {
@@ -282,6 +282,23 @@ pub fn get_installed_deps(site_pkgs: SitePackages) -> Result<HashMap<String, Has
         }
     }
     Ok(mapping)
+}
+
+pub fn get_unused_deps(base_dir: &Path) -> Result<ExitCode> {
+    let deps_file = get_deps_specification_file(&base_dir)?;
+    let pyproject_packages = get_pkgs_from_pyproject_toml(&deps_file);
+
+    let site_packages = get_site_pkgs()?;
+    let installed_deps: HashMap<String, HashSet<String>> = get_installed_deps(site_packages)?;
+
+    // First thing we need to do is compare the installed deps with the pyproject.toml deps
+    // If there are any packages in the pyproject.toml that are not installed, we should error out as
+    // the python project shouldnt be able to run without them anyways
+
+    let used_dependencies = get_used_deps(base_dir);
+
+    // this is temporary
+    Ok(ExitCode::Success)
 }
 
 #[cfg(test)]
@@ -404,7 +421,7 @@ mod tests {
         let temp_dir =
             create_working_directory(&["dir1", "dir2"], Some(&["pyproject.toml"])).unwrap();
         let base_directory = temp_dir.path().join("dir1");
-        let file = get_dependency_specification_file(&base_directory).unwrap();
+        let file = get_deps_specification_file(&base_directory).unwrap();
         assert_eq!(file.file_name().unwrap(), "pyproject.toml");
     }
 
@@ -412,7 +429,7 @@ mod tests {
     fn get_dependency_specification_file_that_does_not_exist() {
         let temp_dir = create_working_directory(&["dir1", "dir2"], None).unwrap();
         let base_directory = temp_dir.path().join("dir1");
-        let file = get_dependency_specification_file(&base_directory);
+        let file = get_deps_specification_file(&base_directory);
         assert!(file.is_err());
     }
 
@@ -424,7 +441,7 @@ mod tests {
         )
         .unwrap();
         let base_directory = temp_dir.path().join("dir1");
-        let used_dependencies = get_used_dependencies(&base_directory).unwrap();
+        let used_dependencies = get_used_deps(&base_directory).unwrap();
         assert_eq!(used_dependencies.len(), 0);
 
         let temp_dir = create_working_directory(
@@ -433,7 +450,7 @@ mod tests {
         )
         .unwrap();
         let base_directory = temp_dir.path().join("dir1");
-        let used_dependencies = get_used_dependencies(&base_directory).unwrap();
+        let used_dependencies = get_used_deps(&base_directory).unwrap();
         assert_eq!(used_dependencies.len(), 0);
 
         let temp_dir = create_working_directory(
@@ -442,7 +459,7 @@ mod tests {
         )
         .unwrap();
         let base_directory = temp_dir.path().join("dir2");
-        let used_dependencies = get_used_dependencies(&base_directory).unwrap();
+        let used_dependencies = get_used_deps(&base_directory).unwrap();
         assert_eq!(used_dependencies.len(), 0);
 
         let temp_dir = create_working_directory(
@@ -455,7 +472,7 @@ mod tests {
         let mut file = File::create(file_path).unwrap();
         file.write_all("import os".as_bytes()).unwrap();
 
-        let used_dependencies = get_used_dependencies(&base_directory).unwrap();
+        let used_dependencies = get_used_deps(&base_directory).unwrap();
         assert_eq!(used_dependencies.len(), 1);
         assert!(used_dependencies.contains(&ast::Identifier::new("os")));
 
@@ -468,7 +485,7 @@ mod tests {
         let file_path = base_directory.join("file1.py");
         let mut file = File::create(file_path).unwrap();
         file.write_all(b"import os, sys").unwrap();
-        let used_dependencies = get_used_dependencies(&base_directory).unwrap();
+        let used_dependencies = get_used_deps(&base_directory).unwrap();
         assert_eq!(used_dependencies.len(), 2);
         assert!(used_dependencies.contains(&ast::Identifier::new("os")));
     }
@@ -491,7 +508,7 @@ mod tests {
         )
         .unwrap();
 
-        let packages = get_packages_from_pyproject_toml(&file_path).unwrap();
+        let packages = get_pkgs_from_pyproject_toml(&file_path).unwrap();
         assert_eq!(packages.len(), 2);
         assert!(packages.contains(&Package {
             name: "requests".to_string(),
@@ -507,7 +524,7 @@ mod tests {
     fn get_get_site_packages_success() {
         std::env::set_var("RUNNING_TESTS", "1");
 
-        let site_packages = get_site_packages().unwrap();
+        let site_packages = get_site_pkgs().unwrap();
         assert!(!site_packages.paths[0].is_empty());
 
         let is_venv = env::var("VIRTUAL_ENV").is_ok();
