@@ -10,20 +10,19 @@ use error::print_error;
 use exit_codes::ExitCode;
 use glob::glob;
 use rustpython_parser::{ast, lexer::lex, parse_tokens, Mode, ParseError};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str;
-use toml::Table;
-use toml::Value;
+
 use walkdir::WalkDir;
 
 const DEFAULT_PKGS: [&str; 5] = ["pip", "setuptools", "wheel", "python", "python_version"];
 
 #[inline]
-fn extract_first_part_of_import(import: &str) -> ast::Identifier {
+fn extract_first_part_of_import(import: &str) -> String {
     import.split('.').next().unwrap_or_default().into()
 }
 
@@ -42,7 +41,7 @@ fn parse_python_ast(file_content: &str) -> Result<ast::Mod, ParseError> {
 /// # Returns
 ///
 /// A Result containing the parsed ast::Mod on success, or a ParseError on failure.
-fn collect_imports(stmts: &[ast::Stmt], deps_set: &mut HashSet<ast::Identifier>) {
+fn collect_imports(stmts: &[ast::Stmt], deps_set: &mut HashSet<String>) {
     stmts.iter().for_each(|stmt| match stmt {
         ast::Stmt::Import(import) => {
             import.names.iter().for_each(|alias| {
@@ -69,7 +68,7 @@ fn collect_imports(stmts: &[ast::Stmt], deps_set: &mut HashSet<ast::Identifier>)
 /// # Returns
 ///
 /// A Result containing a Vec of ast::Identifier on success, or an std::io::Error on failure.
-pub fn get_used_deps(dir: &Path) -> Result<Vec<ast::Identifier>> {
+pub fn get_used_dependencies(dir: &Path) -> Result<HashSet<String>> {
     let walker: walkdir::IntoIter = WalkDir::new(dir).into_iter();
     let mut used_deps = HashSet::new();
 
@@ -101,7 +100,7 @@ pub fn get_used_deps(dir: &Path) -> Result<Vec<ast::Identifier>> {
 /// # Returns
 ///
 /// A boolean indicating whether the dependency specification files were found.
-pub fn get_deps_specification_file(base_dir: &Path) -> Result<PathBuf> {
+pub fn get_dependency_specification_file(base_dir: &Path) -> Result<PathBuf> {
     let file = base_dir.ancestors().find_map(|dir| {
         let files = vec!["requirements.txt", "pyproject.toml"];
         files
@@ -131,10 +130,10 @@ pub fn get_deps_specification_file(base_dir: &Path) -> Result<PathBuf> {
 /// # Errors
 ///
 /// * ExitCode::GeneralError - If the file could not be read or parsed.
-pub fn get_deps_from_pyproject_toml(path: &PathBuf) -> Result<Vec<Dependency>> {
+pub fn get_dependencies_from_pyproject_toml(path: &PathBuf) -> Result<Vec<Dependency>> {
     let toml_str = fs::read_to_string(path)?;
 
-    let toml: Table = match toml::from_str(&toml_str) {
+    let toml: toml::Table = match toml::from_str(&toml_str) {
         Ok(t) => t,
         Err(e) => {
             eprintln!("{}", e);
@@ -236,8 +235,8 @@ pub fn get_site_package_dir() -> Result<SitePackages> {
 /// # Errors
 ///
 /// * ExitCode::GeneralError - If the site-packages directory could not be read or the top_level.txt files could not be read.
-pub fn get_installed_pkgs(site_pkgs: SitePackages) -> Result<InstalledPackages> {
-    let mut installed_pkgs = InstalledPackages::new();
+pub fn get_installed_packages(site_pkgs: SitePackages) -> Result<InstalledPackages> {
+    let mut pkgs = InstalledPackages::new();
 
     for path in site_pkgs.paths {
         let glob_pattern = format!("{}/{}-info", path, "*");
@@ -264,22 +263,35 @@ pub fn get_installed_pkgs(site_pkgs: SitePackages) -> Result<InstalledPackages> 
                 set
             };
 
-            installed_pkgs.add_pkg(pkg_name, import_names);
+            pkgs.add_pkg(pkg_name, import_names);
         }
     }
-    Ok(installed_pkgs)
+    Ok(pkgs)
 }
 
-pub fn get_unused_deps(base_dir: &Path) -> Result<ExitCode> {
-    let deps_file = get_deps_specification_file(&base_dir)?;
-    let pyproject_packages = get_deps_from_pyproject_toml(&deps_file);
+pub fn get_unused_dependencies(base_dir: &Path) -> Result<ExitCode> {
+    // potentiall issues shut hypercorn that's used in a bash script
+
+    let deps_file = get_dependency_specification_file(&base_dir)?;
+    let pyproject_deps = get_dependencies_from_pyproject_toml(&deps_file);
 
     let site_pkgs = get_site_package_dir()?;
-    // println!("{:#?}", site_pkgs);
-    let installed_pkgs = get_installed_pkgs(site_pkgs)?;
-    println!("{:#?}", installed_pkgs);
 
-    // let used_dependencies = get_used_deps(base_dir);
+    let installed_pkgs = get_installed_packages(site_pkgs)?;
+
+    let used_deps = get_used_dependencies(base_dir)?;
+
+    let used_pkgs: HashSet<_> = installed_pkgs
+        .mapping
+        .iter()
+        .filter(|(_pkg_name, import_names)| !import_names.is_disjoint(&used_deps))
+        .map(|(pkg_name, _)| pkg_name)
+        .collect();
+
+    let unused_deps: Vec<_> = pyproject_deps?
+        .into_iter()
+        .filter(|dep| !used_pkgs.contains(&dep.name) && !DEFAULT_PKGS.contains(&dep.name.as_str()))
+        .collect();
 
     // this is temporary
     Ok(ExitCode::Success)
@@ -405,7 +417,7 @@ mod tests {
         let temp_dir =
             create_working_directory(&["dir1", "dir2"], Some(&["pyproject.toml"])).unwrap();
         let base_directory = temp_dir.path().join("dir1");
-        let file = get_deps_specification_file(&base_directory).unwrap();
+        let file = get_dependency_specification_file(&base_directory).unwrap();
         assert_eq!(file.file_name().unwrap(), "pyproject.toml");
     }
 
@@ -413,7 +425,7 @@ mod tests {
     fn get_dependency_specification_file_that_does_not_exist() {
         let temp_dir = create_working_directory(&["dir1", "dir2"], None).unwrap();
         let base_directory = temp_dir.path().join("dir1");
-        let file = get_deps_specification_file(&base_directory);
+        let file = get_dependency_specification_file(&base_directory);
         assert!(file.is_err());
     }
 
@@ -425,7 +437,7 @@ mod tests {
         )
         .unwrap();
         let base_directory = temp_dir.path().join("dir1");
-        let used_dependencies = get_used_deps(&base_directory).unwrap();
+        let used_dependencies = get_used_dependencies(&base_directory).unwrap();
         assert_eq!(used_dependencies.len(), 0);
 
         let temp_dir = create_working_directory(
@@ -434,7 +446,7 @@ mod tests {
         )
         .unwrap();
         let base_directory = temp_dir.path().join("dir1");
-        let used_dependencies = get_used_deps(&base_directory).unwrap();
+        let used_dependencies = get_used_dependencies(&base_directory).unwrap();
         assert_eq!(used_dependencies.len(), 0);
 
         let temp_dir = create_working_directory(
@@ -443,7 +455,7 @@ mod tests {
         )
         .unwrap();
         let base_directory = temp_dir.path().join("dir2");
-        let used_dependencies = get_used_deps(&base_directory).unwrap();
+        let used_dependencies = get_used_dependencies(&base_directory).unwrap();
         assert_eq!(used_dependencies.len(), 0);
 
         let temp_dir = create_working_directory(
@@ -456,7 +468,7 @@ mod tests {
         let mut file = File::create(file_path).unwrap();
         file.write_all("import os".as_bytes()).unwrap();
 
-        let used_dependencies = get_used_deps(&base_directory).unwrap();
+        let used_dependencies = get_used_dependencies(&base_directory).unwrap();
         assert_eq!(used_dependencies.len(), 1);
         assert!(used_dependencies.contains(&ast::Identifier::new("os")));
 
@@ -469,14 +481,14 @@ mod tests {
         let file_path = base_directory.join("file1.py");
         let mut file = File::create(file_path).unwrap();
         file.write_all(b"import os, sys").unwrap();
-        let used_dependencies = get_used_deps(&base_directory).unwrap();
+        let used_dependencies = get_used_dependencies(&base_directory).unwrap();
         assert_eq!(used_dependencies.len(), 2);
         assert!(used_dependencies.contains(&ast::Identifier::new("os")));
     }
 
     // Need to write tests for get_packages_from_pyproject_toml here
     #[test]
-    fn get_dependencies_from_pyproject_toml_success() {
+    fn get_deps_from_pyproject_toml_success() {
         let temp_dir =
             create_working_directory(&["dir1", "dir2"], Some(&["pyproject.toml"])).unwrap();
         let base_directory = temp_dir.path().join("dir1");
@@ -492,7 +504,7 @@ mod tests {
         )
         .unwrap();
 
-        let packages = get_deps_from_pyproject_toml(&file_path).unwrap();
+        let packages = get_dependencies_from_pyproject_toml(&file_path).unwrap();
         assert_eq!(packages.len(), 2);
         assert!(packages.contains(&Dependency {
             name: "requests".to_string()
@@ -549,7 +561,7 @@ mod tests {
             venv_name: Some("test-venv".to_string()),
         };
 
-        let installed_pkgs = get_installed_pkgs(site_pkgs).unwrap();
+        let installed_pkgs = get_installed_packages(site_pkgs).unwrap();
 
         assert_eq!(
             installed_pkgs.mapping.len(),

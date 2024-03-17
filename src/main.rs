@@ -10,8 +10,8 @@ use clap::Parser;
 use std::env;
 
 use pip_udeps::{
-    get_deps_from_pyproject_toml, get_deps_specification_file, get_installed_pkgs,
-    get_site_package_dir, get_unused_deps,
+    get_dependencies_from_pyproject_toml, get_dependency_specification_file,
+    get_installed_packages, get_site_package_dir, get_unused_dependencies,
 };
 use std::path::PathBuf;
 
@@ -64,7 +64,7 @@ fn run() -> Result<ExitCode> {
 
     // let site_pkgs = get_site_pkgs()?;
     // let deps = get_installed_deps(site_pkgs)?;
-    let unused_deps = get_unused_deps(&opts.base_directory)?;
+    let unused_deps = get_unused_dependencies(&opts.base_directory)?;
     println!("{:#?}", unused_deps);
 
     // let my_val = env::var("VIRTUAL_ENV")

@@ -1,9 +1,10 @@
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 
-#[derive(Deserialize, Debug, PartialEq, Clone)]
+#[derive(Deserialize, Debug, PartialEq, Clone, Eq, Hash)]
 pub struct Dependency {
     pub name: String,
+    // maybe a version or something here
 }
 
 #[derive(Deserialize, Debug, PartialEq, Clone)]
@@ -27,9 +28,12 @@ impl InstalledPackages {
         let pkg_name = pkg_name.replace("_", "-");
         self.mapping.insert(pkg_name, import_names);
     }
-
     pub fn get_pkg(&self, pkg_name: &str) -> Option<&HashSet<String>> {
         self.mapping.get(pkg_name)
+    }
+
+    pub fn remove_pkg(&mut self, pkg_name: &str) -> Option<HashSet<String>> {
+        self.mapping.remove(pkg_name)
     }
 }
 
