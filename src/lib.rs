@@ -1,3 +1,7 @@
+#![feature(test)]
+
+extern crate test;
+
 mod defs;
 mod error;
 mod exit_codes;
@@ -299,11 +303,27 @@ pub fn get_unused_dependencies(base_dir: &Path) -> Result<ExitCode> {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use std::fs::File;
     use std::io::Write;
     use std::io::{self};
     use tempfile::TempDir;
+    use test::Bencher;
+
+    #[bench]
+    fn bench_get_used_dependencies(b: &mut Bencher) {
+        let temp_dir = create_working_directory(
+            &["dir1", "dir2"],
+            Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
+        )
+        .unwrap();
+        let base_directory = temp_dir.path().join("dir1");
+        let file_path = base_directory.join("file1.py");
+        let mut file = File::create(file_path).unwrap();
+        file.write_all(b"import os, sys").unwrap();
+        b.iter(|| get_used_dependencies(&base_directory));
+    }
 
     fn create_working_directory(
         directories: &[&'static str],
@@ -356,11 +376,11 @@ mod tests {
         assert_eq!(ast.clone().module().unwrap().body.len(), 1);
 
         let body = &ast.module().unwrap().body;
-        let mut temp_deps_set: HashSet<ast::Identifier> = HashSet::new();
+        let mut temp_deps_set: HashSet<String> = HashSet::new();
         collect_imports(body, &mut temp_deps_set);
 
         assert_eq!(temp_deps_set.len(), 1);
-        assert!(temp_deps_set.contains(&ast::Identifier::new("os")));
+        assert!(temp_deps_set.contains("os"));
     }
 
     #[test]
@@ -374,27 +394,27 @@ mod tests {
         let file_content = "import os";
         let ast = parse_python_ast(file_content).unwrap();
         let body = &ast.module().unwrap().body;
-        let mut temp_deps_set: HashSet<ast::Identifier> = HashSet::new();
+        let mut temp_deps_set: HashSet<String> = HashSet::new();
         collect_imports(body, &mut temp_deps_set);
         assert_eq!(temp_deps_set.len(), 1);
-        assert!(temp_deps_set.contains(&ast::Identifier::new("os")));
+        assert!(temp_deps_set.contains("os"));
 
         let file_content = "import os, sys";
         let ast = parse_python_ast(file_content).unwrap();
         let body = &ast.module().unwrap().body;
-        let mut temp_deps_set: HashSet<ast::Identifier> = HashSet::new();
+        let mut temp_deps_set: HashSet<String> = HashSet::new();
         collect_imports(body, &mut temp_deps_set);
         assert_eq!(temp_deps_set.len(), 2);
-        assert!(temp_deps_set.contains(&ast::Identifier::new("os")));
-        assert!(temp_deps_set.contains(&ast::Identifier::new("sys")));
+        assert!(temp_deps_set.contains("os"));
+        assert!(temp_deps_set.contains("sys"));
 
         let file_content = "from os import path";
         let ast: ast::Mod = parse_python_ast(file_content).unwrap();
         let body = &ast.module().unwrap().body;
-        let mut temp_deps_set: HashSet<ast::Identifier> = HashSet::new();
+        let mut temp_deps_set: HashSet<String> = HashSet::new();
         collect_imports(body, &mut temp_deps_set);
         assert_eq!(temp_deps_set.len(), 1);
-        assert!(temp_deps_set.contains(&ast::Identifier::new("os")));
+        assert!(temp_deps_set.contains("os"));
     }
 
     #[test]
@@ -406,10 +426,10 @@ mod tests {
         let file_content = "from os import path, sys";
         let ast = parse_python_ast(file_content).unwrap();
         let body = &ast.module().unwrap().body;
-        let mut temp_deps_set: HashSet<ast::Identifier> = HashSet::new();
+        let mut temp_deps_set: HashSet<String> = HashSet::new();
         collect_imports(body, &mut temp_deps_set);
         assert_eq!(temp_deps_set.len(), 1);
-        assert!(temp_deps_set.contains(&ast::Identifier::new("os")));
+        assert!(temp_deps_set.contains("os"));
     }
 
     #[test]
@@ -470,7 +490,7 @@ mod tests {
 
         let used_dependencies = get_used_dependencies(&base_directory).unwrap();
         assert_eq!(used_dependencies.len(), 1);
-        assert!(used_dependencies.contains(&ast::Identifier::new("os")));
+        assert!(used_dependencies.contains("os"));
 
         let temp_dir = create_working_directory(
             &["dir1", "dir2"],
@@ -483,7 +503,7 @@ mod tests {
         file.write_all(b"import os, sys").unwrap();
         let used_dependencies = get_used_dependencies(&base_directory).unwrap();
         assert_eq!(used_dependencies.len(), 2);
-        assert!(used_dependencies.contains(&ast::Identifier::new("os")));
+        assert!(used_dependencies.contains("os"));
     }
 
     // Need to write tests for get_packages_from_pyproject_toml here
