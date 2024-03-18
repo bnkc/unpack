@@ -14,7 +14,7 @@ use error::print_error;
 use exit_codes::ExitCode;
 use glob::glob;
 
-use rustpython_parser::{ast, parse, Mode};
+use rustpython_parser::{ast::Stmt, parse, Mode};
 
 use std::collections::HashSet;
 use std::env;
@@ -26,49 +26,50 @@ use std::str;
 use walkdir::WalkDir;
 
 const DEFAULT_PKGS: [&str; 5] = ["pip", "setuptools", "wheel", "python", "python_version"];
+const DEP_SPEC_FILES: [&str; 2] = ["requirements.txt", "pyproject.toml"];
 
 #[inline]
-fn extract_first_part_of_import(import: &str) -> String {
+fn stem_import(import: &str) -> String {
     import.split('.').next().unwrap_or_default().into()
 }
 
-fn visitor(nodes: &[ast::Stmt], deps_set: &mut HashSet<String>) {
+fn visitor(nodes: &[Stmt], collected_deps: &mut HashSet<String>) {
     nodes.iter().for_each(|stmt| match stmt {
-        ast::Stmt::Import(import) => {
+        Stmt::Import(import) => {
             import.names.iter().for_each(|alias| {
-                deps_set.insert(extract_first_part_of_import(&alias.name));
+                collected_deps.insert(stem_import(&alias.name));
             });
         }
-        ast::Stmt::ImportFrom(import) => {
+        Stmt::ImportFrom(import) => {
             if let Some(module) = &import.module {
-                deps_set.insert(extract_first_part_of_import(module));
+                collected_deps.insert(stem_import(module));
             }
         }
-        ast::Stmt::FunctionDef(function_def) => visitor(&function_def.body, deps_set),
-        ast::Stmt::ClassDef(class_def) => visitor(&class_def.body, deps_set),
-        ast::Stmt::AsyncFunctionDef(async_function_def) => {
-            visitor(&async_function_def.body, deps_set)
+        Stmt::FunctionDef(function_def) => visitor(&function_def.body, collected_deps),
+        Stmt::ClassDef(class_def) => visitor(&class_def.body, collected_deps),
+        Stmt::AsyncFunctionDef(async_function_def) => {
+            visitor(&async_function_def.body, collected_deps)
         }
-        ast::Stmt::For(for_stmt) => visitor(&for_stmt.body, deps_set),
-        ast::Stmt::AsyncFor(async_for_stmt) => visitor(&async_for_stmt.body, deps_set),
-        ast::Stmt::While(while_stmt) => visitor(&while_stmt.body, deps_set),
-        ast::Stmt::If(if_stmt) => visitor(&if_stmt.body, deps_set),
-        ast::Stmt::With(with_stmt) => visitor(&with_stmt.body, deps_set),
-        ast::Stmt::AsyncWith(async_with_stmt) => visitor(&async_with_stmt.body, deps_set),
-        ast::Stmt::Match(match_stmt) => {
+        Stmt::For(for_stmt) => visitor(&for_stmt.body, collected_deps),
+        Stmt::AsyncFor(async_for_stmt) => visitor(&async_for_stmt.body, collected_deps),
+        Stmt::While(while_stmt) => visitor(&while_stmt.body, collected_deps),
+        Stmt::If(if_stmt) => visitor(&if_stmt.body, collected_deps),
+        Stmt::With(with_stmt) => visitor(&with_stmt.body, collected_deps),
+        Stmt::AsyncWith(async_with_stmt) => visitor(&async_with_stmt.body, collected_deps),
+        Stmt::Match(match_stmt) => {
             match_stmt.cases.iter().for_each(|case| {
-                visitor(&case.body, deps_set);
+                visitor(&case.body, collected_deps);
             });
         }
-        ast::Stmt::Try(try_stmt) => {
-            visitor(&try_stmt.body, deps_set);
-            visitor(&try_stmt.orelse, deps_set);
-            visitor(&try_stmt.finalbody, deps_set);
+        Stmt::Try(try_stmt) => {
+            visitor(&try_stmt.body, collected_deps);
+            visitor(&try_stmt.orelse, collected_deps);
+            visitor(&try_stmt.finalbody, collected_deps);
         }
-        ast::Stmt::TryStar(try_star_stmt) => {
-            visitor(&try_star_stmt.body, deps_set);
-            visitor(&try_star_stmt.orelse, deps_set);
-            visitor(&try_star_stmt.finalbody, deps_set);
+        Stmt::TryStar(try_star_stmt) => {
+            visitor(&try_star_stmt.body, collected_deps);
+            visitor(&try_star_stmt.orelse, collected_deps);
+            visitor(&try_star_stmt.finalbody, collected_deps);
         }
 
         _ => {}
@@ -83,13 +84,14 @@ pub fn get_used_dependencies(dir: &Path) -> Result<HashSet<String>, Box<dyn std:
         .try_fold(HashSet::new(), |mut acc, entry| {
             let file_content = fs::read_to_string(entry.path())?;
             let module = parse(&file_content, Mode::Module, "<embedded>")?;
-            let nodes = &module.module().unwrap().body; // Maybe should do a match here
-
+            let nodes = &module.module().unwrap().body; // Maybe should do a match here??
             let mut collected_deps: HashSet<String> = HashSet::new();
+
             visitor(&nodes, &mut collected_deps);
 
             acc.extend(collected_deps);
-            Ok(acc) // Propagate errors upwards
+
+            Ok(acc)
         })
 }
 
@@ -105,8 +107,7 @@ pub fn get_used_dependencies(dir: &Path) -> Result<HashSet<String>, Box<dyn std:
 /// A boolean indicating whether the dependency specification files were found.
 pub fn get_dependency_specification_file(base_dir: &Path) -> Result<PathBuf> {
     let file = base_dir.ancestors().find_map(|dir| {
-        let files = vec!["requirements.txt", "pyproject.toml"];
-        files
+        DEP_SPEC_FILES
             .into_iter()
             .map(|file_name| dir.join(file_name))
             .find(|file_path| file_path.exists())
@@ -273,30 +274,33 @@ pub fn get_installed_packages(site_pkgs: SitePackages) -> Result<InstalledPackag
 }
 
 pub fn get_unused_dependencies(base_dir: &Path) -> Result<ExitCode> {
-    // potentiall issues shut hypercorn that's used in a bash script
+    // potential issues shut hypercorn that's used in a bash script
+    // another example would be flower
 
-    // let deps_file = get_dependency_specification_file(&base_dir)?;
-    // let pyproject_deps = get_dependencies_from_pyproject_toml(&deps_file);
+    let deps_file = get_dependency_specification_file(&base_dir)?;
+    let pyproject_deps = get_dependencies_from_pyproject_toml(&deps_file);
 
-    // let site_pkgs = get_site_package_dir()?;
+    let site_pkgs = get_site_package_dir()?;
 
-    // let installed_pkgs = get_installed_packages(site_pkgs)?;
+    let installed_pkgs = get_installed_packages(site_pkgs)?;
 
-    let used_deps = get_used_dependencies(base_dir);
+    let used_deps = get_used_dependencies(base_dir).unwrap();
 
-    println!("{:#?}", used_deps);
+    // println!("{:#?}", used_deps);
 
-    // let used_pkgs: HashSet<_> = installed_pkgs
-    //     .mapping
-    //     .iter()
-    //     .filter(|(_pkg_name, import_names)| !import_names.is_disjoint(&used_deps))
-    //     .map(|(pkg_name, _)| pkg_name)
-    //     .collect();
+    let used_pkgs: HashSet<_> = installed_pkgs
+        .mapping
+        .iter()
+        .filter(|(_pkg_name, import_names)| !import_names.is_disjoint(&used_deps))
+        .map(|(pkg_name, _)| pkg_name)
+        .collect();
 
-    // let unused_deps: Vec<_> = pyproject_deps?
-    //     .into_iter()
-    //     .filter(|dep| !used_pkgs.contains(&dep.name) && !DEFAULT_PKGS.contains(&dep.name.as_str()))
-    //     .collect();
+    let unused_deps: Vec<_> = pyproject_deps?
+        .into_iter()
+        .filter(|dep| !used_pkgs.contains(&dep.name) && !DEFAULT_PKGS.contains(&dep.name.as_str()))
+        .collect();
+
+    println!("{:#?}", unused_deps);
 
     // this is temporary
     Ok(ExitCode::Success)
@@ -350,15 +354,15 @@ mod tests {
     #[test]
     fn test_extract_first_part_of_import() {
         let import = "os.path";
-        let first_part = extract_first_part_of_import(import);
+        let first_part = stem_import(import);
         assert_eq!(first_part.as_str(), "os");
 
         let import = "os";
-        let first_part = extract_first_part_of_import(import);
+        let first_part = stem_import(import);
         assert_eq!(first_part.as_str(), "os");
 
         let import = "";
-        let first_part = extract_first_part_of_import(import);
+        let first_part = stem_import(import);
         assert_eq!(first_part.as_str(), "");
     }
     // #[test]
