@@ -8,7 +8,7 @@ mod exit_codes;
 
 use anyhow::{anyhow, Context, Result};
 use colored::Colorize;
-use defs::{Dependency, InstalledPackages, SitePackages};
+use defs::{InstalledPackages, PyProjectDeps, SitePackages};
 use dialoguer::Confirm;
 use error::print_error;
 use exit_codes::ExitCode;
@@ -134,7 +134,7 @@ pub fn get_dependency_specification_file(base_dir: &Path) -> Result<PathBuf> {
 /// # Errors
 ///
 /// * ExitCode::GeneralError - If the file could not be read or parsed.
-pub fn get_dependencies_from_pyproject_toml(path: &PathBuf) -> Result<Vec<Dependency>> {
+pub fn get_dependencies_from_pyproject_toml(path: &PathBuf) -> Result<Vec<PyProjectDeps>> {
     let toml_str = fs::read_to_string(path)?;
 
     let toml: toml::Table = match toml::from_str(&toml_str) {
@@ -145,6 +145,8 @@ pub fn get_dependencies_from_pyproject_toml(path: &PathBuf) -> Result<Vec<Depend
         }
     };
 
+    println!("{:#?}", toml);
+
     let deps = toml
         .get("tool")
         .and_then(|t| t.get("poetry"))
@@ -154,7 +156,7 @@ pub fn get_dependencies_from_pyproject_toml(path: &PathBuf) -> Result<Vec<Depend
 
     Ok(deps
         .iter()
-        .map(|(name, _)| Dependency { name: name.clone() })
+        .map(|(name, _)| PyProjectDeps { name: name.clone() })
         .collect())
 }
 
@@ -279,28 +281,27 @@ pub fn get_unused_dependencies(base_dir: &Path) -> Result<ExitCode> {
 
     let deps_file = get_dependency_specification_file(&base_dir)?;
     let pyproject_deps = get_dependencies_from_pyproject_toml(&deps_file);
+    // println!("{:#?}", pyproject_deps);
 
-    let site_pkgs = get_site_package_dir()?;
+    // let site_pkgs = get_site_package_dir()?;
 
-    let installed_pkgs = get_installed_packages(site_pkgs)?;
+    // let installed_pkgs = get_installed_packages(site_pkgs)?;
 
-    let used_deps = get_used_dependencies(base_dir).unwrap();
+    // let used_deps = get_used_dependencies(base_dir).unwrap();
 
-    // println!("{:#?}", used_deps);
+    // // println!("{:#?}", used_deps);
 
-    let used_pkgs: HashSet<_> = installed_pkgs
-        .mapping
-        .iter()
-        .filter(|(_pkg_name, import_names)| !import_names.is_disjoint(&used_deps))
-        .map(|(pkg_name, _)| pkg_name)
-        .collect();
+    // let used_pkgs: HashSet<_> = installed_pkgs
+    //     .mapping
+    //     .iter()
+    //     .filter(|(_pkg_name, import_names)| !import_names.is_disjoint(&used_deps))
+    //     .map(|(pkg_name, _)| pkg_name)
+    //     .collect();
 
-    let unused_deps: Vec<_> = pyproject_deps?
-        .into_iter()
-        .filter(|dep| !used_pkgs.contains(&dep.name) && !DEFAULT_PKGS.contains(&dep.name.as_str()))
-        .collect();
-
-    println!("{:#?}", unused_deps);
+    // let unused_deps: Vec<_> = pyproject_deps?
+    //     .into_iter()
+    //     .filter(|dep| !used_pkgs.contains(&dep.name) && !DEFAULT_PKGS.contains(&dep.name.as_str()))
+    //     .collect();
 
     // this is temporary
     Ok(ExitCode::Success)
@@ -531,10 +532,10 @@ mod tests {
 
         let packages = get_dependencies_from_pyproject_toml(&file_path).unwrap();
         assert_eq!(packages.len(), 2);
-        assert!(packages.contains(&Dependency {
+        assert!(packages.contains(&PyProjectDeps {
             name: "requests".to_string()
         }));
-        assert!(packages.contains(&Dependency {
+        assert!(packages.contains(&PyProjectDeps {
             name: "python".to_string()
         }));
     }

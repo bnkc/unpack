@@ -2,7 +2,7 @@ use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Deserialize, Debug, PartialEq, Clone, Eq, Hash)]
-pub struct Dependency {
+pub struct PyProjectDeps {
     pub name: String,
     // maybe a version or something here
 }
@@ -37,9 +37,9 @@ impl InstalledPackages {
     }
 }
 
-#[derive(Deserialize, Debug, PartialEq, Clone)]
-pub struct UnusedDepsOutcome {
-    success: bool,
-    note: Option<String>,
-    unused_deps: Vec<Dependency>,
-}
+// #[derive(Deserialize, Debug, PartialEq, Clone)]
+// pub struct UnusedDepsOutcome {
+//     success: bool,
+//     note: Option<String>,
+//     unused_deps: Vec<Dependency>,
+// }
