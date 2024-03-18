@@ -75,23 +75,22 @@ fn visitor(nodes: &[ast::Stmt], deps_set: &mut HashSet<String>) {
     });
 }
 
-pub fn get_used_dependencies(dir: &Path) -> Result<HashSet<String>> {
-    let walker: walkdir::IntoIter = WalkDir::new(dir).into_iter();
-    let mut used_deps = HashSet::new();
-    for entry in walker.filter_map(|e| e.ok()) {
-        if entry.file_name().to_string_lossy().ends_with(".py") {
+pub fn get_used_dependencies(dir: &Path) -> Result<HashSet<String>, Box<dyn std::error::Error>> {
+    WalkDir::new(dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|entry| entry.file_name().to_string_lossy().ends_with(".py"))
+        .try_fold(HashSet::new(), |mut acc, entry| {
             let file_content = fs::read_to_string(entry.path())?;
             let module = parse(&file_content, Mode::Module, "<embedded>")?;
+            let nodes = &module.module().unwrap().body; // Maybe should do a match here
 
-            let stmts = &module.module().unwrap().body;
-            let mut temp_deps_set: HashSet<String> = HashSet::new();
-            visitor(&stmts, &mut temp_deps_set);
+            let mut collected_deps: HashSet<String> = HashSet::new();
+            visitor(&nodes, &mut collected_deps);
 
-            used_deps.extend(temp_deps_set);
-        }
-    }
-
-    Ok(used_deps.into_iter().collect())
+            acc.extend(collected_deps);
+            Ok(acc) // Propagate errors upwards
+        })
 }
 
 // Checks for dependency specification files in the specified directory or any parent directories.
@@ -283,7 +282,7 @@ pub fn get_unused_dependencies(base_dir: &Path) -> Result<ExitCode> {
 
     // let installed_pkgs = get_installed_packages(site_pkgs)?;
 
-    let used_deps = get_used_dependencies(base_dir)?;
+    let used_deps = get_used_dependencies(base_dir);
 
     println!("{:#?}", used_deps);
 
