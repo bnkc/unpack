@@ -34,7 +34,7 @@ fn stem_import(import: &str) -> String {
 }
 
 fn visitor(nodes: &[Stmt], collected_deps: &mut HashSet<String>) {
-    nodes.iter().for_each(|stmt| match stmt {
+    nodes.iter().for_each(|node| match node {
         Stmt::Import(import) => {
             import.names.iter().for_each(|alias| {
                 collected_deps.insert(stem_import(&alias.name));
