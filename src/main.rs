@@ -13,6 +13,7 @@ use pip_udeps::{
     get_dependencies_from_pyproject_toml, get_dependency_specification_file,
     get_installed_packages, get_site_package_dir, get_unused_dependencies,
 };
+
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -58,24 +59,8 @@ fn run() -> Result<ExitCode> {
 
     set_project_dir(&opts)?;
 
-    // let deps_file = get_dependency_specification_file(&opts.base_directory)?;
-    // let packages = get_packages_from_pyproject_toml(&deps_file);
-    // use packages or end it here
-
-    // let site_pkgs = get_site_pkgs()?;
-    // let deps = get_installed_deps(site_pkgs)?;
     let unused_deps = get_unused_dependencies(&opts.base_directory)?;
     println!("{:#?}", unused_deps);
-
-    // let my_val = env::var("VIRTUAL_ENV")
-    //     .ok()
-    //     .and_then(|path| path.split('/').last().map(String::from));
-
-    // println!("{:#?}", my_val);
-
-    // let _used_dependencies = get_used_dependencies(&opts.base_directory);
-
-    // let used_dependencies = get_used_dependencies(&opts.base_directory);
 
     // // this is temporary
     Ok(ExitCode::Success)
