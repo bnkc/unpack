@@ -260,6 +260,7 @@ pub fn get_unused_dependencies(base_dir: &Path) -> Result<Outcome> {
 
     let used_imports = get_used_imports(base_dir)?;
 
+    // Get the set of installed packages that are used by comparing the used imports with the installed packages
     let used_pkgs: HashSet<_> = installed_pkgs
         .mapping
         .iter()
@@ -273,7 +274,11 @@ pub fn get_unused_dependencies(base_dir: &Path) -> Result<Outcome> {
         .collect();
 
     outcome.success = !outcome.unused_deps.is_empty();
-
+    let mut note = "".to_owned();
+    note += "Note: There might be false-positives.\n";
+    note += "      For example, `pip-udeps` cannot detect usage of packages that not imported under `[tool.poetry.*]`.\n";
+    // note += "      To ignore some dependencies, write `package.metadata.cargo-udeps.ignore` in Cargo.toml.\n";
+    outcome.note = Some(note);
     Ok(outcome)
 }
 
