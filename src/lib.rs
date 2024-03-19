@@ -35,7 +35,7 @@ fn stem_import(import: &str) -> String {
     import.split('.').next().unwrap_or_default().into()
 }
 
-fn walk_ast(nodes: &[Stmt], collected_deps: &mut HashSet<String>) {
+fn visit_ast(nodes: &[Stmt], collected_deps: &mut HashSet<String>) {
     nodes.iter().for_each(|node| match node {
         Stmt::Import(import) => {
             import.names.iter().for_each(|alias| {
@@ -47,31 +47,31 @@ fn walk_ast(nodes: &[Stmt], collected_deps: &mut HashSet<String>) {
                 collected_deps.insert(stem_import(module));
             }
         }
-        Stmt::FunctionDef(function_def) => walk_ast(&function_def.body, collected_deps),
-        Stmt::ClassDef(class_def) => walk_ast(&class_def.body, collected_deps),
+        Stmt::FunctionDef(function_def) => visit_ast(&function_def.body, collected_deps),
+        Stmt::ClassDef(class_def) => visit_ast(&class_def.body, collected_deps),
         Stmt::AsyncFunctionDef(async_function_def) => {
-            walk_ast(&async_function_def.body, collected_deps)
+            visit_ast(&async_function_def.body, collected_deps)
         }
-        Stmt::For(for_stmt) => walk_ast(&for_stmt.body, collected_deps),
-        Stmt::AsyncFor(async_for_stmt) => walk_ast(&async_for_stmt.body, collected_deps),
-        Stmt::While(while_stmt) => walk_ast(&while_stmt.body, collected_deps),
-        Stmt::If(if_stmt) => walk_ast(&if_stmt.body, collected_deps),
-        Stmt::With(with_stmt) => walk_ast(&with_stmt.body, collected_deps),
-        Stmt::AsyncWith(async_with_stmt) => walk_ast(&async_with_stmt.body, collected_deps),
+        Stmt::For(for_stmt) => visit_ast(&for_stmt.body, collected_deps),
+        Stmt::AsyncFor(async_for_stmt) => visit_ast(&async_for_stmt.body, collected_deps),
+        Stmt::While(while_stmt) => visit_ast(&while_stmt.body, collected_deps),
+        Stmt::If(if_stmt) => visit_ast(&if_stmt.body, collected_deps),
+        Stmt::With(with_stmt) => visit_ast(&with_stmt.body, collected_deps),
+        Stmt::AsyncWith(async_with_stmt) => visit_ast(&async_with_stmt.body, collected_deps),
         Stmt::Match(match_stmt) => {
             match_stmt.cases.iter().for_each(|case| {
-                walk_ast(&case.body, collected_deps);
+                visit_ast(&case.body, collected_deps);
             });
         }
         Stmt::Try(try_stmt) => {
-            walk_ast(&try_stmt.body, collected_deps);
-            walk_ast(&try_stmt.orelse, collected_deps);
-            walk_ast(&try_stmt.finalbody, collected_deps);
+            visit_ast(&try_stmt.body, collected_deps);
+            visit_ast(&try_stmt.orelse, collected_deps);
+            visit_ast(&try_stmt.finalbody, collected_deps);
         }
         Stmt::TryStar(try_star_stmt) => {
-            walk_ast(&try_star_stmt.body, collected_deps);
-            walk_ast(&try_star_stmt.orelse, collected_deps);
-            walk_ast(&try_star_stmt.finalbody, collected_deps);
+            visit_ast(&try_star_stmt.body, collected_deps);
+            visit_ast(&try_star_stmt.orelse, collected_deps);
+            visit_ast(&try_star_stmt.finalbody, collected_deps);
         }
 
         _ => {}
@@ -89,7 +89,7 @@ pub fn get_used_imports(dir: &Path) -> Result<HashSet<String>> {
             let nodes = &module.module().unwrap().body; // Maybe should do a match here??
             let mut collected_deps: HashSet<String> = HashSet::new();
 
-            walk_ast(&nodes, &mut collected_deps);
+            visit_ast(&nodes, &mut collected_deps);
 
             acc.extend(collected_deps);
 
@@ -97,7 +97,7 @@ pub fn get_used_imports(dir: &Path) -> Result<HashSet<String>> {
         })
 }
 
-fn walk_toml(value: &Value, deps: &mut HashSet<Dependency>, path: &str) {
+fn visit_toml(value: &Value, deps: &mut HashSet<Dependency>, path: &str) {
     if let Value::Table(table) = value {
         table.iter().for_each(|(key, val)| match val {
             Value::Table(dep_table) if key.ends_with("dependencies") => {
@@ -106,7 +106,7 @@ fn walk_toml(value: &Value, deps: &mut HashSet<Dependency>, path: &str) {
                     type_: Some(format!("{}.{}", path.trim_start_matches('.'), key)),
                 }));
             }
-            _ => walk_toml(val, deps, &format!("{}.{}", path, key)),
+            _ => visit_toml(val, deps, &format!("{}.{}", path, key)),
         });
     }
 }
@@ -119,7 +119,7 @@ fn get_dependencies_from_toml(path: &Path) -> Result<HashSet<Dependency>> {
 
     let mut collected_deps: HashSet<Dependency> = HashSet::new();
 
-    walk_toml(&toml, &mut collected_deps, "");
+    visit_toml(&toml, &mut collected_deps, "");
 
     Ok(collected_deps)
 }
@@ -279,6 +279,9 @@ pub fn get_unused_dependencies(base_dir: &Path) -> Result<Outcome> {
     note += "      For example, `pip-udeps` cannot detect usage of packages that not imported under `[tool.poetry.*]`.\n";
     // note += "      To ignore some dependencies, write `package.metadata.cargo-udeps.ignore` in Cargo.toml.\n";
     outcome.note = Some(note);
+
+    // outcome.print(self.output, stdout)?;
+
     Ok(outcome)
 }
 
