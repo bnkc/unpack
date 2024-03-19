@@ -14,6 +14,12 @@ pub struct Outcome {
     pub note: Option<String>,
 }
 
+impl Outcome {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 #[derive(Deserialize, Debug, PartialEq, Clone)]
 pub struct SitePackages {
     pub paths: Vec<String>,
