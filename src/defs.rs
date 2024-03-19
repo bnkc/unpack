@@ -1,18 +1,17 @@
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 
-// #[derive(Deserialize, Debug, PartialEq, Clone, Eq, Hash)]
-// pub struct PyProjectDeps {
-//     pub deps: Vec<Dependency>,
-// }
 #[derive(Deserialize, Debug, PartialEq, Clone, Eq, Hash)]
 pub struct Dependency {
     pub name: String,
-    // would love to use an enum here but seeing as we don't know exaclty what they will look like (the kinds )
-    // we will just use a string for now
     pub type_: Option<String>,
-    // maybe add a version here at some point
-    // pub version: Option<String>,
+}
+
+#[derive(Deserialize, Debug, PartialEq, Clone, Default)]
+pub struct Outcome {
+    pub success: bool,
+    pub unused_deps: HashSet<Dependency>,
+    pub note: Option<String>,
 }
 
 #[derive(Deserialize, Debug, PartialEq, Clone)]
@@ -44,10 +43,3 @@ impl InstalledPackages {
         self.mapping.remove(pkg_name)
     }
 }
-
-// #[derive(Deserialize, Debug, PartialEq, Clone)]
-// pub struct UnusedDepsOutcome {
-//     success: bool,
-//     note: Option<String>,
-//     unused_deps: Vec<Dependency>,
-// }

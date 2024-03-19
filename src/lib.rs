@@ -8,7 +8,7 @@ mod exit_codes;
 
 use anyhow::{anyhow, Context, Result};
 use colored::Colorize;
-use defs::{Dependency, InstalledPackages, SitePackages};
+use defs::{Dependency, InstalledPackages, Outcome, SitePackages};
 use dialoguer::Confirm;
 use error::print_error;
 use exit_codes::ExitCode;
@@ -18,11 +18,11 @@ use rustpython_parser::{ast::Stmt, parse, Mode};
 use std::collections::HashSet;
 use std::env;
 use std::fs;
-use std::hash::Hash;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str;
-use std::vec;
+
 use toml::Value;
 
 use walkdir::WalkDir;
@@ -246,36 +246,35 @@ pub fn get_installed_packages(site_pkgs: SitePackages) -> Result<InstalledPackag
     Ok(pkgs)
 }
 
-pub fn get_unused_dependencies(base_dir: &Path) -> Result<ExitCode> {
+pub fn get_unused_dependencies(base_dir: &Path) -> Result<Outcome> {
     // potential issues shut hypercorn that's used in a bash script
     // another example would be flower
+    let mut outcome = Outcome::default();
 
     let deps_file = get_dependency_specification_file(&base_dir)?;
     let pyproject_deps = get_dependencies_from_toml(&deps_file);
-    // println!("{:#?}", pyproject_deps);
 
-    // let site_pkgs = get_site_package_dir()?;
+    let site_pkgs = get_site_package_dir()?;
 
-    // let installed_pkgs = get_installed_packages(site_pkgs)?;
+    let installed_pkgs = get_installed_packages(site_pkgs)?;
 
-    // let used_deps = get_used_dependencies(base_dir).unwrap();
+    let used_imports = get_used_imports(base_dir)?;
 
-    // // println!("{:#?}", used_deps);
+    let used_pkgs: HashSet<_> = installed_pkgs
+        .mapping
+        .iter()
+        .filter(|(_pkg_name, import_names)| !import_names.is_disjoint(&used_imports))
+        .map(|(pkg_name, _)| pkg_name)
+        .collect();
 
-    // let used_pkgs: HashSet<_> = installed_pkgs
-    //     .mapping
-    //     .iter()
-    //     .filter(|(_pkg_name, import_names)| !import_names.is_disjoint(&used_deps))
-    //     .map(|(pkg_name, _)| pkg_name)
-    //     .collect();
+    outcome.unused_deps = pyproject_deps?
+        .into_iter()
+        .filter(|dep| !used_pkgs.contains(&dep.name) && !DEFAULT_PKGS.contains(&dep.name.as_str()))
+        .collect();
 
-    // let unused_deps: Vec<_> = pyproject_deps?
-    //     .into_iter()
-    //     .filter(|dep| !used_pkgs.contains(&dep.name) && !DEFAULT_PKGS.contains(&dep.name.as_str()))
-    //     .collect();
+    outcome.success = !outcome.unused_deps.is_empty();
 
-    // this is temporary
-    Ok(ExitCode::Success)
+    Ok(outcome)
 }
 
 #[cfg(test)]
