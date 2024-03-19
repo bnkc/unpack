@@ -1,10 +1,18 @@
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 
+// #[derive(Deserialize, Debug, PartialEq, Clone, Eq, Hash)]
+// pub struct PyProjectDeps {
+//     pub deps: Vec<Dependency>,
+// }
 #[derive(Deserialize, Debug, PartialEq, Clone, Eq, Hash)]
-pub struct PyProjectDeps {
+pub struct Dependency {
     pub name: String,
-    // maybe a version or something here
+    // would love to use an enum here but seeing as we don't know exaclty what they will look like (the kinds )
+    // we will just use a string for now
+    pub type_: Option<String>,
+    // maybe add a version here at some point
+    // pub version: Option<String>,
 }
 
 #[derive(Deserialize, Debug, PartialEq, Clone)]
