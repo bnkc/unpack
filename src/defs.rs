@@ -1,4 +1,5 @@
 use serde::Deserialize;
+
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 
@@ -16,9 +17,25 @@ pub struct Outcome {
     pub note: Option<String>,
 }
 
-// We need to come back here and clean this up
+#[derive(clap::ValueEnum, Clone, Copy, Debug)]
+enum OutputKind {
+    Human,
+    Json,
+}
+
 impl Outcome {
-    pub fn print(&self, mut stdout: impl Write) -> io::Result<()> {
+    pub fn print(&self, output_kind: OutputKind, stdout: impl Write) -> io::Result<()> {
+        match output_kind {
+            OutputKind::Human => self.print_human(stdout),
+            OutputKind::Json => self.print_json(stdout),
+        }
+    }
+
+    pub fn print_json(&self, mut stdout: impl Write) -> io::Result<()> {
+        stdout.flush()
+    }
+
+    pub fn print_human(&self, mut stdout: impl Write) -> io::Result<()> {
         if self.success {
             writeln!(stdout, "All deps seem to have been used.")?;
         } else {
@@ -46,7 +63,7 @@ impl Outcome {
             writeln!(stdout, "`{}`", format!("{} {}", package_id, version))?;
 
             for (type_, deps) in deps_by_type.iter() {
-                let type_label = type_.as_ref().map_or("General", String::as_str);
+                let type_label = type_.as_ref().map_or("Other", String::as_str);
                 writeln!(stdout, "[{}]", type_label)?;
 
                 // Sort dependencies by name for consistent output

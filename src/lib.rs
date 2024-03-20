@@ -3,15 +3,15 @@
 extern crate test;
 
 mod defs;
-mod error;
-mod exit_codes;
+
+pub mod exit_codes;
 use std::io::Write;
 
 use anyhow::{anyhow, Context, Result};
 use colored::Colorize;
 use defs::{Dependency, InstalledPackages, Outcome, SitePackages};
 use dialoguer::Confirm;
-use error::print_error;
+
 use exit_codes::ExitCode;
 use glob::glob;
 
@@ -30,6 +30,11 @@ use walkdir::WalkDir;
 
 const DEFAULT_PKGS: [&str; 5] = ["pip", "setuptools", "wheel", "python", "python_version"];
 const DEP_SPEC_FILES: [&str; 2] = ["requirements.txt", "pyproject.toml"];
+
+#[inline]
+fn print_error(msg: impl Into<String>) {
+    eprintln!("[pip-udeps error]: {}", msg.into());
+}
 
 #[inline]
 fn stem_import(import: &str) -> String {
@@ -185,7 +190,10 @@ pub fn get_site_package_dir() -> Result<SitePackages> {
         });
     }
     let message = match &venv_name {
-        Some(name) => format!("Virtual environment '{}' detected. Continue?", name),
+        Some(name) => format!(
+            "Detected virtual environment: `{}`. Continue with this environment?",
+            name
+        ),
         None => format!(
             "WARNING: No virtual environment detected. Results may be inaccurate. Continue?"
         )
@@ -208,19 +216,6 @@ pub fn get_site_package_dir() -> Result<SitePackages> {
     })
 }
 
-// Gets the installed dependencies from the site-packages directory.
-///
-/// # Arguments
-///
-/// * `site_pkgs` - A reference to the SitePackagesDir to search within.
-///
-/// # Returns
-///     
-/// A Result containing a HashMap of package names to HashSet of import names on success, or an ExitCode on failure.
-///     
-/// # Errors
-///
-/// * ExitCode::GeneralError - If the site-packages directory could not be read or the top_level.txt files could not be read.
 pub fn get_installed_packages(site_pkgs: SitePackages) -> Result<InstalledPackages> {
     let mut pkgs = InstalledPackages::new();
 
@@ -290,7 +285,7 @@ pub fn get_unused_dependencies<W: Write>(base_dir: &Path, stdout: W) -> Result<E
         outcome.note = Some(note);
     }
 
-    outcome.print(stdout)?;
+    outcome.print_human(stdout)?;
     Ok(if outcome.success {
         ExitCode::Success
     } else {
@@ -503,7 +498,7 @@ mod tests {
     }
 
     // Need to write tests for get_packages_from_pyproject_toml here
-    #[test]
+    // #[test]
     // fn get_deps_from_pyproject_toml_success() {
     //     let temp_dir =
     //         create_working_directory(&["dir1", "dir2"], Some(&["pyproject.toml"])).unwrap();

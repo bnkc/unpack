@@ -4,15 +4,13 @@
 
 mod exit_codes;
 
-use crate::exit_codes::ExitCode;
+use pip_udeps::exit_codes::ExitCode;
+
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use std::env;
 
-use pip_udeps::{
-    get_dependency_specification_file, get_installed_packages, get_site_package_dir,
-    get_unused_dependencies,
-};
+use pip_udeps::get_unused_dependencies;
 
 use std::path::PathBuf;
 
@@ -56,18 +54,11 @@ fn main() {
 
 fn run() -> Result<ExitCode> {
     let opts = Opts::parse();
-
-    set_project_dir(&opts)?;
-
-    let unused_deps = get_unused_dependencies(&opts.base_directory, std::io::stdout())?;
-    // &mut config, io::stdout()
-    // println!("{:#?}", unused_deps);
-
-    // // this is temporary
-    Ok(ExitCode::Success)
+    set_working_dir(&opts)?;
+    get_unused_dependencies(&opts.base_directory, std::io::stdout())
 }
 
-fn set_project_dir(opts: &Opts) -> Result<()> {
+fn set_working_dir(opts: &Opts) -> Result<()> {
     if !opts.base_directory.exists() {
         return Err(anyhow!("The provided path does not exist."));
     } else if !opts.base_directory.is_dir() {
