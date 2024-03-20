@@ -190,10 +190,7 @@ pub fn get_site_package_dir() -> Result<SitePackages> {
         });
     }
     let message = match &venv_name {
-        Some(name) => format!(
-            "Detected virtual environment: `{}`. Continue with this environment?",
-            name
-        ),
+        Some(name) => format!("Detected virtual environment: `{}`. Is this correct?", name),
         None => format!(
             "WARNING: No virtual environment detected. Results may be inaccurate. Continue?"
         )

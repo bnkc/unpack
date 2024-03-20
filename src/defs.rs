@@ -31,16 +31,21 @@ impl Outcome {
         }
     }
 
-    pub fn print_json(&self, mut stdout: impl Write) -> io::Result<()> {
-        stdout.flush()
+    fn edge_and_joint(is_last: bool) -> (char, char) {
+        if is_last {
+            (' ', '└')
+        } else {
+            ('│', '├')
+        }
     }
 
     pub fn print_human(&self, mut stdout: impl Write) -> io::Result<()> {
         if self.success {
-            writeln!(stdout, "All deps seem to have been used.")?;
+            writeln!(stdout, "All dependencies are used!")?;
         } else {
-            writeln!(stdout, "Unused dependencies:")?;
+            writeln!(stdout, "\nUnused dependencies:")?;
 
+            // Group dependencies by type
             let mut deps_by_type: HashMap<Option<String>, Vec<&Dependency>> = HashMap::new();
             for dep in &self.unused_deps {
                 deps_by_type
@@ -49,37 +54,34 @@ impl Outcome {
                     .push(dep);
             }
 
-            let edge_and_joint = |is_last: bool| {
-                if is_last {
-                    (' ', '└')
-                } else {
-                    ('│', '├')
-                }
-            };
-
-            let package_id = std::env::var("CARGO_PKG_NAME").unwrap();
-            let version = std::env::var("CARGO_PKG_VERSION").unwrap();
-
-            writeln!(stdout, "`{}`", format!("{} {}", package_id, version))?;
-
-            for (type_, deps) in deps_by_type.iter() {
-                let type_label = type_.as_ref().map_or("Other", String::as_str);
-                writeln!(stdout, "[{}]", type_label)?;
+            // Iterate over grouped dependencies
+            for (type_, deps) in &deps_by_type {
+                let type_label = type_.as_ref().map_or("General", String::as_str);
+                writeln!(stdout, "\n[{}]", type_label)?;
 
                 // Sort dependencies by name for consistent output
                 let mut sorted_deps = deps.iter().collect::<Vec<_>>();
                 sorted_deps.sort_by_key(|dep| &dep.name);
 
                 for (i, dep) in sorted_deps.iter().enumerate() {
-                    let (_, joint) = edge_and_joint(i == sorted_deps.len() - 1);
-                    writeln!(stdout, "{}─── {}", joint, dep.name)?;
+                    let is_last = i == sorted_deps.len() - 1;
+                    let (_, joint) = Outcome::edge_and_joint(is_last);
+                    if let Some(version) = &dep.version {
+                        writeln!(stdout, "{}─── {} = \"{}\"", joint, dep.name, version)?;
+                    } else {
+                        writeln!(stdout, "{}─── {}", joint, dep.name)?;
+                    }
                 }
             }
 
             if let Some(note) = &self.note {
-                writeln!(stdout, "{}", note)?;
+                writeln!(stdout, "\n{}", note)?;
             }
         }
+        Ok(())
+    }
+
+    pub fn print_json(&self, mut stdout: impl Write) -> io::Result<()> {
         stdout.flush()
     }
 }
