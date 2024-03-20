@@ -562,6 +562,7 @@ dependencies = [
  "dialoguer",
  "glob",
  "log",
+ "rustpython-ast",
  "rustpython-parser",
  "serde",
  "serde_json",

@@ -15,6 +15,9 @@ use dialoguer::Confirm;
 use exit_codes::ExitCode;
 use glob::glob;
 
+// text_size
+use rustpython_ast::Visitor;
+use rustpython_parser::ast;
 use rustpython_parser::{ast::Stmt, parse, Mode};
 use std::collections::HashSet;
 use std::env;
@@ -41,48 +44,69 @@ fn stem_import(import: &str) -> String {
     import.split('.').next().unwrap_or_default().into()
 }
 
-fn visit_ast(nodes: &[Stmt], collected_deps: &mut HashSet<String>) {
-    nodes.iter().for_each(|node| match node {
-        Stmt::Import(import) => {
-            import.names.iter().for_each(|alias| {
-                collected_deps.insert(stem_import(&alias.name));
-            });
-        }
-        Stmt::ImportFrom(import) => {
-            if let Some(module) = &import.module {
-                collected_deps.insert(stem_import(module));
-            }
-        }
-        Stmt::FunctionDef(function_def) => visit_ast(&function_def.body, collected_deps),
-        Stmt::ClassDef(class_def) => visit_ast(&class_def.body, collected_deps),
-        Stmt::AsyncFunctionDef(async_function_def) => {
-            visit_ast(&async_function_def.body, collected_deps)
-        }
-        Stmt::For(for_stmt) => visit_ast(&for_stmt.body, collected_deps),
-        Stmt::AsyncFor(async_for_stmt) => visit_ast(&async_for_stmt.body, collected_deps),
-        Stmt::While(while_stmt) => visit_ast(&while_stmt.body, collected_deps),
-        Stmt::If(if_stmt) => visit_ast(&if_stmt.body, collected_deps),
-        Stmt::With(with_stmt) => visit_ast(&with_stmt.body, collected_deps),
-        Stmt::AsyncWith(async_with_stmt) => visit_ast(&async_with_stmt.body, collected_deps),
-        Stmt::Match(match_stmt) => {
-            match_stmt.cases.iter().for_each(|case| {
-                visit_ast(&case.body, collected_deps);
-            });
-        }
-        Stmt::Try(try_stmt) => {
-            visit_ast(&try_stmt.body, collected_deps);
-            visit_ast(&try_stmt.orelse, collected_deps);
-            visit_ast(&try_stmt.finalbody, collected_deps);
-        }
-        Stmt::TryStar(try_star_stmt) => {
-            visit_ast(&try_star_stmt.body, collected_deps);
-            visit_ast(&try_star_stmt.orelse, collected_deps);
-            visit_ast(&try_star_stmt.finalbody, collected_deps);
-        }
-
-        _ => {}
-    });
+struct DependencyCollector {
+    deps: HashSet<String>,
 }
+
+impl Visitor for DependencyCollector {
+    fn visit_stmt(&mut self, node: Stmt<ast::text_size::TextRange>) {
+        self.generic_visit_stmt(node);
+    }
+
+    fn visit_stmt_import(&mut self, node: ast::StmtImport) {
+        node.names.iter().for_each(|alias| {
+            self.deps.insert(stem_import(&alias.name));
+        })
+    }
+
+    fn visit_stmt_import_from(&mut self, node: ast::StmtImportFrom) {
+        // I need to revisit, why the fuck am I passing a module!!!
+        if let Some(module) = &node.module {
+            self.deps.insert(stem_import(module));
+        }
+    }
+}
+
+// fn visit_ast(nodes: &[Stmt], collected_deps: &mut HashSet<String>) {
+//     nodes.iter().for_each(|node| match node {
+//         Stmt::Import(data) => {
+//             data.names.iter().for_each(|alias| {
+//                 collected_deps.insert(stem_import(&alias.name));
+//             });
+//         }
+//         Stmt::ImportFrom(data) => {
+//             if let Some(module) = &data.module {
+//                 collected_deps.insert(stem_import(module));
+//             }
+//         }
+//         Stmt::FunctionDef(data) => visit_ast(&data.body, collected_deps),
+//         Stmt::ClassDef(data) => visit_ast(&data.body, collected_deps),
+//         Stmt::AsyncFunctionDef(data) => visit_ast(&data.body, collected_deps),
+//         Stmt::For(data) => visit_ast(&data.body, collected_deps),
+//         Stmt::AsyncFor(data) => visit_ast(&data.body, collected_deps),
+//         Stmt::While(data) => visit_ast(&data.body, collected_deps),
+//         Stmt::If(data) => visit_ast(&data.body, collected_deps),
+//         Stmt::With(data) => visit_ast(&data.body, collected_deps),
+//         Stmt::AsyncWith(data) => visit_ast(&data.body, collected_deps),
+//         Stmt::Match(data) => {
+//             data.cases.iter().for_each(|case| {
+//                 visit_ast(&case.body, collected_deps);
+//             });
+//         }
+//         Stmt::Try(data) => {
+//             visit_ast(&data.body, collected_deps);
+//             visit_ast(&data.orelse, collected_deps);
+//             visit_ast(&data.finalbody, collected_deps);
+//         }
+//         Stmt::TryStar(data) => {
+//             visit_ast(&data.body, collected_deps);
+//             visit_ast(&data.orelse, collected_deps);
+//             visit_ast(&data.finalbody, collected_deps);
+//         }
+
+//         _ => {}
+//     });
+// }
 
 pub fn get_used_imports(dir: &Path) -> Result<HashSet<String>> {
     WalkDir::new(dir)
@@ -93,11 +117,23 @@ pub fn get_used_imports(dir: &Path) -> Result<HashSet<String>> {
             let file_content = fs::read_to_string(entry.path())?;
             let module = parse(&file_content, Mode::Module, "<embedded>")?;
             let nodes = &module.module().unwrap().body; // Maybe should do a match here??
-            let mut collected_deps: HashSet<String> = HashSet::new();
+                                                        // let mut collected_deps: HashSet<String> = HashSet::new();
 
-            visit_ast(&nodes, &mut collected_deps);
+            let mut collector = DependencyCollector {
+                deps: HashSet::new(),
+            };
 
-            acc.extend(collected_deps);
+            // visit_ast(&nodes, &mut collected_deps);
+
+            // nodes.iter().for_each(|node| {
+            //     collector.visit_stmt(node)
+            // });
+
+            for node in nodes {
+                collector.visit_stmt(node.clone());
+            }
+
+            acc.extend(collector.deps);
 
             Ok(acc)
         })
@@ -178,7 +214,7 @@ pub fn get_site_package_dir() -> Result<SitePackages> {
         .map(ToString::to_string)
         .collect();
 
-    let venv_name = env::var("VIRTUAL_ENV")
+    let venv = env::var("VIRTUAL_ENV")
         .ok()
         .and_then(|path| path.split('/').last().map(String::from));
 
@@ -186,10 +222,10 @@ pub fn get_site_package_dir() -> Result<SitePackages> {
     if env::var("RUNNING_TESTS").is_ok() {
         return Ok(SitePackages {
             paths: pkg_paths,
-            venv_name,
+            venv,
         });
     }
-    let message = match &venv_name {
+    let message = match &venv {
         Some(name) => format!("Detected virtual environment: `{}`. Is this correct?", name),
         None => format!(
             "WARNING: No virtual environment detected. Results may be inaccurate. Continue?"
@@ -209,7 +245,7 @@ pub fn get_site_package_dir() -> Result<SitePackages> {
 
     Ok(SitePackages {
         paths: pkg_paths,
-        venv_name,
+        venv,
     })
 }
 
@@ -534,7 +570,7 @@ mod tests {
             let venv_name = env::var("VIRTUAL_ENV")
                 .ok()
                 .and_then(|path| path.split('/').last().map(String::from));
-            assert_eq!(site_packages.venv_name, venv_name);
+            assert_eq!(site_packages.venv, venv_name);
         }
     }
 
@@ -565,7 +601,7 @@ mod tests {
                 site_packages_dir.to_string_lossy().to_string(),
                 "/usr/lib/python3.8/site-packages".to_string(),
             ],
-            venv_name: Some("test-venv".to_string()),
+            venv: Some("test-venv".to_string()),
         };
 
         let installed_pkgs = get_installed_packages(site_pkgs).unwrap();
