@@ -18,7 +18,7 @@ use glob::glob;
 // text_size
 use rustpython_ast::Visitor;
 use rustpython_parser::ast;
-use rustpython_parser::{ast::Stmt, parse, Mode};
+use rustpython_parser::{parse, Mode};
 use std::collections::HashSet;
 use std::env;
 use std::fs;
@@ -49,7 +49,7 @@ struct DependencyCollector {
 }
 
 impl Visitor for DependencyCollector {
-    fn visit_stmt(&mut self, node: Stmt<ast::text_size::TextRange>) {
+    fn visit_stmt(&mut self, node: ast::Stmt<ast::text_size::TextRange>) {
         self.generic_visit_stmt(node);
     }
 
@@ -60,53 +60,11 @@ impl Visitor for DependencyCollector {
     }
 
     fn visit_stmt_import_from(&mut self, node: ast::StmtImportFrom) {
-        // I need to revisit, why the fuck am I passing a module!!!
         if let Some(module) = &node.module {
             self.deps.insert(stem_import(module));
         }
     }
 }
-
-// fn visit_ast(nodes: &[Stmt], collected_deps: &mut HashSet<String>) {
-//     nodes.iter().for_each(|node| match node {
-//         Stmt::Import(data) => {
-//             data.names.iter().for_each(|alias| {
-//                 collected_deps.insert(stem_import(&alias.name));
-//             });
-//         }
-//         Stmt::ImportFrom(data) => {
-//             if let Some(module) = &data.module {
-//                 collected_deps.insert(stem_import(module));
-//             }
-//         }
-//         Stmt::FunctionDef(data) => visit_ast(&data.body, collected_deps),
-//         Stmt::ClassDef(data) => visit_ast(&data.body, collected_deps),
-//         Stmt::AsyncFunctionDef(data) => visit_ast(&data.body, collected_deps),
-//         Stmt::For(data) => visit_ast(&data.body, collected_deps),
-//         Stmt::AsyncFor(data) => visit_ast(&data.body, collected_deps),
-//         Stmt::While(data) => visit_ast(&data.body, collected_deps),
-//         Stmt::If(data) => visit_ast(&data.body, collected_deps),
-//         Stmt::With(data) => visit_ast(&data.body, collected_deps),
-//         Stmt::AsyncWith(data) => visit_ast(&data.body, collected_deps),
-//         Stmt::Match(data) => {
-//             data.cases.iter().for_each(|case| {
-//                 visit_ast(&case.body, collected_deps);
-//             });
-//         }
-//         Stmt::Try(data) => {
-//             visit_ast(&data.body, collected_deps);
-//             visit_ast(&data.orelse, collected_deps);
-//             visit_ast(&data.finalbody, collected_deps);
-//         }
-//         Stmt::TryStar(data) => {
-//             visit_ast(&data.body, collected_deps);
-//             visit_ast(&data.orelse, collected_deps);
-//             visit_ast(&data.finalbody, collected_deps);
-//         }
-
-//         _ => {}
-//     });
-// }
 
 pub fn get_used_imports(dir: &Path) -> Result<HashSet<String>> {
     WalkDir::new(dir)
@@ -116,22 +74,16 @@ pub fn get_used_imports(dir: &Path) -> Result<HashSet<String>> {
         .try_fold(HashSet::new(), |mut acc, entry| {
             let file_content = fs::read_to_string(entry.path())?;
             let module = parse(&file_content, Mode::Module, "<embedded>")?;
-            let nodes = &module.module().unwrap().body; // Maybe should do a match here??
-                                                        // let mut collected_deps: HashSet<String> = HashSet::new();
+            let nodes = module.module().unwrap().body; // Maybe should do a match here??
+                                                       // let mut collected_deps: HashSet<String> = HashSet::new();
 
             let mut collector = DependencyCollector {
                 deps: HashSet::new(),
             };
 
-            // visit_ast(&nodes, &mut collected_deps);
-
-            // nodes.iter().for_each(|node| {
-            //     collector.visit_stmt(node)
-            // });
-
-            for node in nodes {
-                collector.visit_stmt(node.clone());
-            }
+            nodes
+                .into_iter()
+                .for_each(|node| collector.visit_stmt(node));
 
             acc.extend(collector.deps);
 
