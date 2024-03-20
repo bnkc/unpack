@@ -59,8 +59,9 @@ fn run() -> Result<ExitCode> {
 
     set_project_dir(&opts)?;
 
-    let unused_deps = get_unused_dependencies(&opts.base_directory)?;
-    println!("{:#?}", unused_deps);
+    let unused_deps = get_unused_dependencies(&opts.base_directory, std::io::stdout())?;
+    // &mut config, io::stdout()
+    // println!("{:#?}", unused_deps);
 
     // // this is temporary
     Ok(ExitCode::Success)

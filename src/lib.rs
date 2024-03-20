@@ -5,6 +5,7 @@ extern crate test;
 mod defs;
 mod error;
 mod exit_codes;
+use std::io::Write;
 
 use anyhow::{anyhow, Context, Result};
 use colored::Colorize;
@@ -101,9 +102,18 @@ fn visit_toml(value: &Value, deps: &mut HashSet<Dependency>, path: &str) {
     if let Value::Table(table) = value {
         table.iter().for_each(|(key, val)| match val {
             Value::Table(dep_table) if key.ends_with("dependencies") => {
-                deps.extend(dep_table.iter().map(|(dep_name, _)| Dependency {
-                    name: dep_name.to_string(),
-                    type_: Some(format!("{}.{}", path.trim_start_matches('.'), key)),
+                deps.extend(dep_table.iter().filter_map(|(name, val)| match val {
+                    Value::String(v) => Some(Dependency {
+                        name: name.to_string(),
+                        type_: Some(format!("{}.{}", path.trim_start_matches('.'), key)),
+                        version: Some(v.to_string()),
+                    }),
+                    Value::Table(_) => Some(Dependency {
+                        name: name.to_string(),
+                        type_: Some(format!("{}.{}", path.trim_start_matches('.'), key)),
+                        version: None,
+                    }),
+                    _ => None,
                 }));
             }
             _ => visit_toml(val, deps, &format!("{}.{}", path, key)),
@@ -114,8 +124,7 @@ fn visit_toml(value: &Value, deps: &mut HashSet<Dependency>, path: &str) {
 fn get_dependencies_from_toml(path: &Path) -> Result<HashSet<Dependency>> {
     let toml_str = fs::read_to_string(path)
         .with_context(|| format!("Failed to read TOML file at {:?}", path))?;
-    let toml: toml::Value =
-        toml::from_str(&toml_str).with_context(|| "Failed to parse TOML content")?;
+    let toml = toml::from_str(&toml_str).with_context(|| "Failed to parse TOML content")?;
 
     let mut collected_deps: HashSet<Dependency> = HashSet::new();
 
@@ -246,8 +255,8 @@ pub fn get_installed_packages(site_pkgs: SitePackages) -> Result<InstalledPackag
     Ok(pkgs)
 }
 
-pub fn get_unused_dependencies(base_dir: &Path) -> Result<Outcome> {
-    // potential issues shut hypercorn that's used in a bash script
+pub fn get_unused_dependencies<W: Write>(base_dir: &Path, stdout: W) -> Result<ExitCode> {
+    // potential issues hypercorn that's used in a bash/bat script isn't picked up
     // another example would be flower
     let mut outcome = Outcome::default();
 
@@ -260,7 +269,6 @@ pub fn get_unused_dependencies(base_dir: &Path) -> Result<Outcome> {
 
     let used_imports = get_used_imports(base_dir)?;
 
-    // Get the set of installed packages that are used by comparing the used imports with the installed packages
     let used_pkgs: HashSet<_> = installed_pkgs
         .mapping
         .iter()
@@ -273,16 +281,21 @@ pub fn get_unused_dependencies(base_dir: &Path) -> Result<Outcome> {
         .filter(|dep| !used_pkgs.contains(&dep.name) && !DEFAULT_PKGS.contains(&dep.name.as_str()))
         .collect();
 
-    outcome.success = !outcome.unused_deps.is_empty();
-    let mut note = "".to_owned();
-    note += "Note: There might be false-positives.\n";
-    note += "      For example, `pip-udeps` cannot detect usage of packages that not imported under `[tool.poetry.*]`.\n";
-    // note += "      To ignore some dependencies, write `package.metadata.cargo-udeps.ignore` in Cargo.toml.\n";
-    outcome.note = Some(note);
+    outcome.success = outcome.unused_deps.is_empty();
 
-    // outcome.print(self.output, stdout)?;
+    if !outcome.success {
+        let mut note = "".to_owned();
+        note += "Note: There might be false-positives.\n";
+        note += "      For example, `pip-udeps` cannot detect usage of packages that not imported under `[tool.poetry.*]`.\n";
+        outcome.note = Some(note);
+    }
 
-    Ok(outcome)
+    outcome.print(stdout)?;
+    Ok(if outcome.success {
+        ExitCode::Success
+    } else {
+        ExitCode::GeneralError
+    })
 }
 
 #[cfg(test)]
@@ -290,7 +303,6 @@ mod tests {
 
     use super::*;
     use std::fs::File;
-    use std::io::Write;
     use std::io::{self};
     use tempfile::TempDir;
     use test::Bencher;
@@ -574,45 +586,48 @@ mod tests {
 
         // Assert that the package names and import names are correct
         assert!(
-            installed_pkgs.get_pkg("example-pkg1").is_some(),
+            installed_pkgs.mapping.get("example-pkg1").is_some(),
             "Should contain example_pkg1"
         );
 
         assert!(
             installed_pkgs
-                .get_pkg("example-pkg1")
+                .mapping
+                .get("example-pkg1")
                 .unwrap()
                 .contains("example_pkg1"),
             "example-pkg1 should contain example_pkg1"
         );
         assert!(
-            installed_pkgs.get_pkg("example-pkg2").is_some(),
+            installed_pkgs.mapping.get("example-pkg2").is_some(),
             "Should contain example_pkg2"
         );
 
         assert!(
             installed_pkgs
-                .get_pkg("example-pkg2")
+                .mapping
+                .get("example-pkg2")
                 .unwrap()
                 .contains("example_pkg2"),
             "example-pkg2 should contain example_pkg2"
         );
 
         assert!(
-            installed_pkgs.get_pkg("scikit-learn").is_some(),
+            installed_pkgs.mapping.get("scikit-learn").is_some(),
             "Should contain scikit_learn"
         );
 
         assert!(
             installed_pkgs
-                .get_pkg("scikit-learn")
+                .mapping
+                .get("scikit-learn")
                 .unwrap()
                 .contains("sklearn"),
             "scikit_learn should contain sklearn"
         );
         // non-existent package
         assert!(
-            installed_pkgs.get_pkg("non-existent").is_none(),
+            installed_pkgs.mapping.get("non-existent").is_some(),
             "Should not contain non-existent"
         );
     }
