@@ -2,20 +2,27 @@
 
 extern crate test;
 
+pub mod cli;
 mod defs;
-
 pub mod exit_codes;
+
+// pub mod exit_codes;
 use std::io::Write;
 
 use anyhow::{anyhow, Context, Result};
+// use cli::Config;
+pub use crate::cli::*;
+pub use crate::exit_codes::*;
 use colored::Colorize;
 use defs::{Dependency, InstalledPackages, Outcome, SitePackages};
 use dialoguer::Confirm;
 
-use exit_codes::ExitCode;
 use glob::glob;
 
-use rustpython_parser::{ast::Stmt, parse, Mode};
+// text_size
+use rustpython_ast::Visitor;
+use rustpython_parser::ast;
+use rustpython_parser::{parse, Mode};
 use std::collections::HashSet;
 use std::env;
 use std::fs;
@@ -29,61 +36,47 @@ use toml::Value;
 use walkdir::WalkDir;
 
 const DEFAULT_PKGS: [&str; 5] = ["pip", "setuptools", "wheel", "python", "python_version"];
-const DEP_SPEC_FILES: [&str; 2] = ["requirements.txt", "pyproject.toml"];
 
+/// Print an error message to stderr
 #[inline]
 fn print_error(msg: impl Into<String>) {
     eprintln!("[pip-udeps error]: {}", msg.into());
 }
 
+/// Extract the first part of an import statement
+///  e.g. `os.path` -> `os`
 #[inline]
 fn stem_import(import: &str) -> String {
     import.split('.').next().unwrap_or_default().into()
 }
 
-fn visit_ast(nodes: &[Stmt], collected_deps: &mut HashSet<String>) {
-    nodes.iter().for_each(|node| match node {
-        Stmt::Import(import) => {
-            import.names.iter().for_each(|alias| {
-                collected_deps.insert(stem_import(&alias.name));
-            });
-        }
-        Stmt::ImportFrom(import) => {
-            if let Some(module) = &import.module {
-                collected_deps.insert(stem_import(module));
-            }
-        }
-        Stmt::FunctionDef(function_def) => visit_ast(&function_def.body, collected_deps),
-        Stmt::ClassDef(class_def) => visit_ast(&class_def.body, collected_deps),
-        Stmt::AsyncFunctionDef(async_function_def) => {
-            visit_ast(&async_function_def.body, collected_deps)
-        }
-        Stmt::For(for_stmt) => visit_ast(&for_stmt.body, collected_deps),
-        Stmt::AsyncFor(async_for_stmt) => visit_ast(&async_for_stmt.body, collected_deps),
-        Stmt::While(while_stmt) => visit_ast(&while_stmt.body, collected_deps),
-        Stmt::If(if_stmt) => visit_ast(&if_stmt.body, collected_deps),
-        Stmt::With(with_stmt) => visit_ast(&with_stmt.body, collected_deps),
-        Stmt::AsyncWith(async_with_stmt) => visit_ast(&async_with_stmt.body, collected_deps),
-        Stmt::Match(match_stmt) => {
-            match_stmt.cases.iter().for_each(|case| {
-                visit_ast(&case.body, collected_deps);
-            });
-        }
-        Stmt::Try(try_stmt) => {
-            visit_ast(&try_stmt.body, collected_deps);
-            visit_ast(&try_stmt.orelse, collected_deps);
-            visit_ast(&try_stmt.finalbody, collected_deps);
-        }
-        Stmt::TryStar(try_star_stmt) => {
-            visit_ast(&try_star_stmt.body, collected_deps);
-            visit_ast(&try_star_stmt.orelse, collected_deps);
-            visit_ast(&try_star_stmt.finalbody, collected_deps);
-        }
-
-        _ => {}
-    });
+/// Collects all the dependencies from the AST
+struct DependencyCollector {
+    deps: HashSet<String>,
 }
 
+/// This is a visitor pattern that implements the Visitor trait
+impl Visitor for DependencyCollector {
+    /// This is a generic visit method that will be called for all nodes
+    fn visit_stmt(&mut self, node: ast::Stmt<ast::text_size::TextRange>) {
+        self.generic_visit_stmt(node);
+    }
+    /// This method is `overridden` to collect the dependencies into `self.deps`
+    fn visit_stmt_import(&mut self, node: ast::StmtImport) {
+        node.names.iter().for_each(|alias| {
+            self.deps.insert(stem_import(&alias.name));
+        })
+    }
+
+    /// This method is `overridden` to collect the dependencies into `self.deps`
+    fn visit_stmt_import_from(&mut self, node: ast::StmtImportFrom) {
+        if let Some(module) = &node.module {
+            self.deps.insert(stem_import(module));
+        }
+    }
+}
+
+/// Given a valid directory, we will walk through all the `.py` files and collect the imports
 pub fn get_used_imports(dir: &Path) -> Result<HashSet<String>> {
     WalkDir::new(dir)
         .into_iter()
@@ -92,17 +85,26 @@ pub fn get_used_imports(dir: &Path) -> Result<HashSet<String>> {
         .try_fold(HashSet::new(), |mut acc, entry| {
             let file_content = fs::read_to_string(entry.path())?;
             let module = parse(&file_content, Mode::Module, "<embedded>")?;
-            let nodes = &module.module().unwrap().body; // Maybe should do a match here??
-            let mut collected_deps: HashSet<String> = HashSet::new();
 
-            visit_ast(&nodes, &mut collected_deps);
+            let mut collector = DependencyCollector {
+                deps: HashSet::new(),
+            };
 
-            acc.extend(collected_deps);
+            // Visit AST and collect deps
+            module
+                .module()
+                .unwrap() //Prob should change this from unwrap to something else
+                .body
+                .into_iter()
+                .for_each(|node| collector.visit_stmt(node));
+
+            acc.extend(collector.deps);
 
             Ok(acc)
         })
 }
 
+// This will 100% need revisited and extended out to requirements.txt
 fn visit_toml(value: &Value, deps: &mut HashSet<Dependency>, path: &str) {
     if let Value::Table(table) = value {
         table.iter().for_each(|(key, val)| match val {
@@ -126,32 +128,19 @@ fn visit_toml(value: &Value, deps: &mut HashSet<Dependency>, path: &str) {
     }
 }
 
+/// Given a path to a `pyproject.toml` file, we will collect all the dependencies
+/// from `[tool.poetry.*]`
+// This will 100% need revisited and extended out to requirements.txt
 fn get_dependencies_from_toml(path: &Path) -> Result<HashSet<Dependency>> {
     let toml_str = fs::read_to_string(path)
         .with_context(|| format!("Failed to read TOML file at {:?}", path))?;
     let toml = toml::from_str(&toml_str).with_context(|| "Failed to parse TOML content")?;
 
-    let mut collected_deps: HashSet<Dependency> = HashSet::new();
+    let mut deps = HashSet::new();
 
-    visit_toml(&toml, &mut collected_deps, "");
+    visit_toml(&toml, &mut deps, "");
 
-    Ok(collected_deps)
-}
-
-pub fn get_dependency_specification_file(base_dir: &Path) -> Result<PathBuf> {
-    let file = base_dir.ancestors().find_map(|dir| {
-        DEP_SPEC_FILES
-            .into_iter()
-            .map(|file_name| dir.join(file_name))
-            .find(|file_path| file_path.exists())
-    });
-
-    file.ok_or_else(|| {
-        anyhow!(format!(
-            "Could not find `Requirements.txt` or `pyproject.toml` in '{}' or any parent directory",
-            env::current_dir().unwrap().to_string_lossy()
-        ))
-    })
+    Ok(deps)
 }
 
 pub fn get_site_package_dir() -> Result<SitePackages> {
@@ -178,7 +167,7 @@ pub fn get_site_package_dir() -> Result<SitePackages> {
         .map(ToString::to_string)
         .collect();
 
-    let venv_name = env::var("VIRTUAL_ENV")
+    let venv = env::var("VIRTUAL_ENV")
         .ok()
         .and_then(|path| path.split('/').last().map(String::from));
 
@@ -186,10 +175,10 @@ pub fn get_site_package_dir() -> Result<SitePackages> {
     if env::var("RUNNING_TESTS").is_ok() {
         return Ok(SitePackages {
             paths: pkg_paths,
-            venv_name,
+            venv,
         });
     }
-    let message = match &venv_name {
+    let message = match &venv {
         Some(name) => format!("Detected virtual environment: `{}`. Is this correct?", name),
         None => format!(
             "WARNING: No virtual environment detected. Results may be inaccurate. Continue?"
@@ -209,7 +198,7 @@ pub fn get_site_package_dir() -> Result<SitePackages> {
 
     Ok(SitePackages {
         paths: pkg_paths,
-        venv_name,
+        venv,
     })
 }
 
@@ -247,19 +236,21 @@ pub fn get_installed_packages(site_pkgs: SitePackages) -> Result<InstalledPackag
     Ok(pkgs)
 }
 
-pub fn get_unused_dependencies<W: Write>(base_dir: &Path, stdout: W) -> Result<ExitCode> {
+// ignore error for now
+
+pub fn get_unused_dependencies<W: Write>(config: &Config, stdout: W) -> Result<ExitCode> {
     // potential issues hypercorn that's used in a bash/bat script isn't picked up
     // another example would be flower
     let mut outcome = Outcome::default();
 
-    let deps_file = get_dependency_specification_file(&base_dir)?;
-    let pyproject_deps = get_dependencies_from_toml(&deps_file);
+    // let deps_file = get_dependency_specification_file(&base_dir)?;
+    let pyproject_deps = get_dependencies_from_toml(&config.dep_spec_file)?;
 
     let site_pkgs = get_site_package_dir()?;
 
     let installed_pkgs = get_installed_packages(site_pkgs)?;
 
-    let used_imports = get_used_imports(base_dir)?;
+    let used_imports = get_used_imports(&config.base_directory)?;
 
     let used_pkgs: HashSet<_> = installed_pkgs
         .mapping
@@ -268,7 +259,7 @@ pub fn get_unused_dependencies<W: Write>(base_dir: &Path, stdout: W) -> Result<E
         .map(|(pkg_name, _)| pkg_name)
         .collect();
 
-    outcome.unused_deps = pyproject_deps?
+    outcome.unused_deps = pyproject_deps
         .into_iter()
         .filter(|dep| !used_pkgs.contains(&dep.name) && !DEFAULT_PKGS.contains(&dep.name.as_str()))
         .collect();
@@ -283,6 +274,7 @@ pub fn get_unused_dependencies<W: Write>(base_dir: &Path, stdout: W) -> Result<E
     }
 
     outcome.print_human(stdout)?;
+
     Ok(if outcome.success {
         ExitCode::Success
     } else {
@@ -420,22 +412,22 @@ mod tests {
     //     assert!(temp_deps_set.contains("os"));
     // }
 
-    #[test]
-    fn get_dependency_specification_file_that_exists() {
-        let temp_dir =
-            create_working_directory(&["dir1", "dir2"], Some(&["pyproject.toml"])).unwrap();
-        let base_directory = temp_dir.path().join("dir1");
-        let file = get_dependency_specification_file(&base_directory).unwrap();
-        assert_eq!(file.file_name().unwrap(), "pyproject.toml");
-    }
+    // #[test]
+    // fn get_dependency_specification_file_that_exists() {
+    //     let temp_dir =
+    //         create_working_directory(&["dir1", "dir2"], Some(&["pyproject.toml"])).unwrap();
+    //     let base_directory = temp_dir.path().join("dir1");
+    //     let file = get_dependency_specification_file(&base_directory).unwrap();
+    //     assert_eq!(file.file_name().unwrap(), "pyproject.toml");
+    // }
 
-    #[test]
-    fn get_dependency_specification_file_that_does_not_exist() {
-        let temp_dir = create_working_directory(&["dir1", "dir2"], None).unwrap();
-        let base_directory = temp_dir.path().join("dir1");
-        let file = get_dependency_specification_file(&base_directory);
-        assert!(file.is_err());
-    }
+    // #[test]
+    // fn get_dependency_specification_file_that_does_not_exist() {
+    //     let temp_dir = create_working_directory(&["dir1", "dir2"], None).unwrap();
+    //     let base_directory = temp_dir.path().join("dir1");
+    //     let file = get_dependency_specification_file(&base_directory);
+    //     assert!(file.is_err());
+    // }
 
     #[test]
     fn test_get_used_dependencies() {
@@ -534,7 +526,7 @@ mod tests {
             let venv_name = env::var("VIRTUAL_ENV")
                 .ok()
                 .and_then(|path| path.split('/').last().map(String::from));
-            assert_eq!(site_packages.venv_name, venv_name);
+            assert_eq!(site_packages.venv, venv_name);
         }
     }
 
@@ -565,7 +557,7 @@ mod tests {
                 site_packages_dir.to_string_lossy().to_string(),
                 "/usr/lib/python3.8/site-packages".to_string(),
             ],
-            venv_name: Some("test-venv".to_string()),
+            venv: Some("test-venv".to_string()),
         };
 
         let installed_pkgs = get_installed_packages(site_pkgs).unwrap();

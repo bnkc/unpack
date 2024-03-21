@@ -1,43 +1,15 @@
-// another name could be prune-deps
-// or prune-udeps
-// or prune-rs
-
-mod exit_codes;
-
-use pip_udeps::exit_codes::ExitCode;
+mod cli;
+// mod exit_codes;
 
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use std::env;
 
-use pip_udeps::get_unused_dependencies;
-
-use std::path::PathBuf;
-
-#[derive(Parser, Debug)]
-// #[command(version, about, long_about = None)]
-#[command(
-    name = "pip-udeps",
-    version,
-    about = "A simple tool to find and prune unused dependencies in a Python project.",
-    after_long_help = "Bugs can be reported on GitHub: https://github.com/bnkc/pip-udeps/issues",
-    max_term_width = 98
-)]
-pub struct Opts {
-    /// Change the working directory of pip-udeps to a provided path. This
-    /// means that pip-udeps will search for unused dependencies with respect to the given base path.
-    /// Note that if the base path provided does not contain a poetry.toml, requirements.txt, etc
-    /// within the root of the path provided, operation will exit.
-    #[arg(
-        long,
-        short = 'b',
-        help = "The path to the directory to search for Python files.",
-        default_value = ".",
-        long_help
-    )]
-    #[arg(default_value = ".")]
-    pub base_directory: PathBuf,
-}
+use pip_udeps::{
+    cli::{Config, Opts},
+    exit_codes::ExitCode,
+    get_unused_dependencies,
+};
 
 fn main() {
     let result = run();
@@ -54,17 +26,21 @@ fn main() {
 
 fn run() -> Result<ExitCode> {
     let opts = Opts::parse();
-    set_working_dir(&opts)?;
-    get_unused_dependencies(&opts.base_directory, std::io::stdout())
+    let config = Config::build(opts)?;
+    set_working_dir(&config)?;
+    get_unused_dependencies(&config, std::io::stdout())
+
+    // This is a hack. I need to decide if I want to move everything to the library or not.
+    // Ok(ExitCode::Success)
 }
 
-fn set_working_dir(opts: &Opts) -> Result<()> {
-    if !opts.base_directory.exists() {
+fn set_working_dir(config: &Config) -> Result<()> {
+    if !config.base_directory.exists() {
         return Err(anyhow!("The provided path does not exist."));
-    } else if !opts.base_directory.is_dir() {
+    } else if !config.base_directory.is_dir() {
         return Err(anyhow!("The provided path is not a directory."));
     }
-    env::set_current_dir(&opts.base_directory).with_context(|| {
+    env::set_current_dir(&config.base_directory).with_context(|| {
         format!(
             "Could not set '{}' as the current working directory. Please check the path provided.",
             env::current_dir().unwrap().to_string_lossy()
