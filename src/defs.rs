@@ -24,12 +24,12 @@ enum OutputKind {
 }
 
 impl Outcome {
-    pub fn print(&self, output_kind: OutputKind, stdout: impl Write) -> io::Result<()> {
-        match output_kind {
-            OutputKind::Human => self.print_human(stdout),
-            OutputKind::Json => self.print_json(stdout),
-        }
-    }
+    // pub fn print(&self, output_kind: OutputKind, stdout: impl Write) -> io::Result<()> {
+    //     match output_kind {
+    //         OutputKind::Human => self.print_human(stdout),
+    //         OutputKind::Json => self.print_json(stdout),
+    //     }
+    // }
 
     fn edge_and_joint(is_last: bool) -> (char, char) {
         if is_last {
@@ -78,9 +78,11 @@ impl Outcome {
                 writeln!(stdout, "\n{}", note)?;
             }
         }
+        stdout.flush()?;
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn print_json(&self, mut stdout: impl Write) -> io::Result<()> {
         stdout.flush()
     }

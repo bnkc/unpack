@@ -2,18 +2,17 @@
 
 extern crate test;
 
-// mod cli;
-mod cli;
+pub mod cli;
 mod defs;
-mod exit_codes;
+pub mod exit_codes;
 
 // pub mod exit_codes;
 use std::io::Write;
 
 use anyhow::{anyhow, Context, Result};
 // use cli::Config;
-use crate::cli::Config;
-use crate::exit_codes::ExitCode;
+pub use crate::cli::*;
+pub use crate::exit_codes::*;
 use colored::Colorize;
 use defs::{Dependency, InstalledPackages, Outcome, SitePackages};
 use dialoguer::Confirm;

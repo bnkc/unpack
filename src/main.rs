@@ -1,14 +1,15 @@
 mod cli;
-mod exit_codes;
+// mod exit_codes;
 
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use std::env;
 
-use crate::cli::{Config, Opts};
-use crate::exit_codes::ExitCode;
-
-use pip_udeps::get_unused_dependencies;
+use pip_udeps::{
+    cli::{Config, Opts},
+    exit_codes::ExitCode,
+    get_unused_dependencies,
+};
 
 fn main() {
     let result = run();
@@ -26,20 +27,20 @@ fn main() {
 fn run() -> Result<ExitCode> {
     let opts = Opts::parse();
     let config = Config::build(opts)?;
-    set_working_dir(&opts)?;
-    get_unused_dependencies(&config, std::io::stdout())?;
+    set_working_dir(&config)?;
+    get_unused_dependencies(&config, std::io::stdout())
 
     // This is a hack. I need to decide if I want to move everything to the library or not.
-    Ok(ExitCode::Success)
+    // Ok(ExitCode::Success)
 }
 
-fn set_working_dir(opts: &Opts) -> Result<()> {
-    if !opts.base_directory.exists() {
+fn set_working_dir(config: &Config) -> Result<()> {
+    if !config.base_directory.exists() {
         return Err(anyhow!("The provided path does not exist."));
-    } else if !opts.base_directory.is_dir() {
+    } else if !config.base_directory.is_dir() {
         return Err(anyhow!("The provided path is not a directory."));
     }
-    env::set_current_dir(&opts.base_directory).with_context(|| {
+    env::set_current_dir(&config.base_directory).with_context(|| {
         format!(
             "Could not set '{}' as the current working directory. Please check the path provided.",
             env::current_dir().unwrap().to_string_lossy()

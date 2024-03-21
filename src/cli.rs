@@ -64,6 +64,7 @@ impl Config {
     }
 }
 
+/// Get the dependency specification file from the base directory.
 pub fn get_dependency_specification_file(base_dir: &Path) -> Result<PathBuf> {
     let file = base_dir.ancestors().find_map(|dir| {
         DEP_SPEC_FILES
