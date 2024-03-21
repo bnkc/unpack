@@ -2,17 +2,22 @@
 
 extern crate test;
 
+// mod cli;
+mod cli;
 mod defs;
+mod exit_codes;
 
-pub mod exit_codes;
+// pub mod exit_codes;
 use std::io::Write;
 
 use anyhow::{anyhow, Context, Result};
+// use cli::Config;
+use crate::cli::Config;
+use crate::exit_codes::ExitCode;
 use colored::Colorize;
 use defs::{Dependency, InstalledPackages, Outcome, SitePackages};
 use dialoguer::Confirm;
 
-use exit_codes::ExitCode;
 use glob::glob;
 
 // text_size
@@ -32,7 +37,6 @@ use toml::Value;
 use walkdir::WalkDir;
 
 const DEFAULT_PKGS: [&str; 5] = ["pip", "setuptools", "wheel", "python", "python_version"];
-const DEP_SPEC_FILES: [&str; 2] = ["requirements.txt", "pyproject.toml"];
 
 /// Print an error message to stderr
 #[inline]
@@ -140,22 +144,6 @@ fn get_dependencies_from_toml(path: &Path) -> Result<HashSet<Dependency>> {
     Ok(deps)
 }
 
-pub fn get_dependency_specification_file(base_dir: &Path) -> Result<PathBuf> {
-    let file: Option<PathBuf> = base_dir.ancestors().find_map(|dir| {
-        DEP_SPEC_FILES
-            .into_iter()
-            .map(|file_name| dir.join(file_name))
-            .find(|file_path| file_path.exists())
-    });
-
-    file.ok_or_else(|| {
-        anyhow!(format!(
-            "Could not find `Requirements.txt` or `pyproject.toml` in '{}' or any parent directory",
-            env::current_dir().unwrap().to_string_lossy()
-        ))
-    })
-}
-
 pub fn get_site_package_dir() -> Result<SitePackages> {
     let output = match Command::new("python").arg("-m").arg("site").output() {
         Ok(o) => o,
@@ -249,19 +237,21 @@ pub fn get_installed_packages(site_pkgs: SitePackages) -> Result<InstalledPackag
     Ok(pkgs)
 }
 
-pub fn get_unused_dependencies<W: Write>(base_dir: &Path, stdout: W) -> Result<ExitCode> {
+// ignore error for now
+
+pub fn get_unused_dependencies<W: Write>(config: &Config, stdout: W) -> Result<ExitCode> {
     // potential issues hypercorn that's used in a bash/bat script isn't picked up
     // another example would be flower
     let mut outcome = Outcome::default();
 
-    let deps_file = get_dependency_specification_file(&base_dir)?;
-    let pyproject_deps = get_dependencies_from_toml(&deps_file);
+    // let deps_file = get_dependency_specification_file(&base_dir)?;
+    let pyproject_deps = get_dependencies_from_toml(&config.dep_spec_file)?;
 
     let site_pkgs = get_site_package_dir()?;
 
     let installed_pkgs = get_installed_packages(site_pkgs)?;
 
-    let used_imports = get_used_imports(base_dir)?;
+    let used_imports = get_used_imports(&config.base_directory)?;
 
     let used_pkgs: HashSet<_> = installed_pkgs
         .mapping
@@ -270,7 +260,7 @@ pub fn get_unused_dependencies<W: Write>(base_dir: &Path, stdout: W) -> Result<E
         .map(|(pkg_name, _)| pkg_name)
         .collect();
 
-    outcome.unused_deps = pyproject_deps?
+    outcome.unused_deps = pyproject_deps
         .into_iter()
         .filter(|dep| !used_pkgs.contains(&dep.name) && !DEFAULT_PKGS.contains(&dep.name.as_str()))
         .collect();
@@ -285,6 +275,7 @@ pub fn get_unused_dependencies<W: Write>(base_dir: &Path, stdout: W) -> Result<E
     }
 
     outcome.print_human(stdout)?;
+
     Ok(if outcome.success {
         ExitCode::Success
     } else {
@@ -422,22 +413,22 @@ mod tests {
     //     assert!(temp_deps_set.contains("os"));
     // }
 
-    #[test]
-    fn get_dependency_specification_file_that_exists() {
-        let temp_dir =
-            create_working_directory(&["dir1", "dir2"], Some(&["pyproject.toml"])).unwrap();
-        let base_directory = temp_dir.path().join("dir1");
-        let file = get_dependency_specification_file(&base_directory).unwrap();
-        assert_eq!(file.file_name().unwrap(), "pyproject.toml");
-    }
+    // #[test]
+    // fn get_dependency_specification_file_that_exists() {
+    //     let temp_dir =
+    //         create_working_directory(&["dir1", "dir2"], Some(&["pyproject.toml"])).unwrap();
+    //     let base_directory = temp_dir.path().join("dir1");
+    //     let file = get_dependency_specification_file(&base_directory).unwrap();
+    //     assert_eq!(file.file_name().unwrap(), "pyproject.toml");
+    // }
 
-    #[test]
-    fn get_dependency_specification_file_that_does_not_exist() {
-        let temp_dir = create_working_directory(&["dir1", "dir2"], None).unwrap();
-        let base_directory = temp_dir.path().join("dir1");
-        let file = get_dependency_specification_file(&base_directory);
-        assert!(file.is_err());
-    }
+    // #[test]
+    // fn get_dependency_specification_file_that_does_not_exist() {
+    //     let temp_dir = create_working_directory(&["dir1", "dir2"], None).unwrap();
+    //     let base_directory = temp_dir.path().join("dir1");
+    //     let file = get_dependency_specification_file(&base_directory);
+    //     assert!(file.is_err());
+    // }
 
     #[test]
     fn test_get_used_dependencies() {
