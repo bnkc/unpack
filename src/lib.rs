@@ -34,31 +34,38 @@ use walkdir::WalkDir;
 const DEFAULT_PKGS: [&str; 5] = ["pip", "setuptools", "wheel", "python", "python_version"];
 const DEP_SPEC_FILES: [&str; 2] = ["requirements.txt", "pyproject.toml"];
 
+/// Print an error message to stderr
 #[inline]
 fn print_error(msg: impl Into<String>) {
     eprintln!("[pip-udeps error]: {}", msg.into());
 }
 
+/// Extract the first part of an import statement
+///  e.g. `os.path` -> `os`
 #[inline]
 fn stem_import(import: &str) -> String {
     import.split('.').next().unwrap_or_default().into()
 }
 
+/// Collects all the dependencies from the AST
 struct DependencyCollector {
     deps: HashSet<String>,
 }
 
+/// This is a visitor pattern that implements the Visitor trait
 impl Visitor for DependencyCollector {
+    /// This is a generic visit method that will be called for all nodes
     fn visit_stmt(&mut self, node: ast::Stmt<ast::text_size::TextRange>) {
         self.generic_visit_stmt(node);
     }
-
+    /// This method is `overridden` to collect the dependencies into `self.deps`
     fn visit_stmt_import(&mut self, node: ast::StmtImport) {
         node.names.iter().for_each(|alias| {
             self.deps.insert(stem_import(&alias.name));
         })
     }
 
+    /// This method is `overridden` to collect the dependencies into `self.deps`
     fn visit_stmt_import_from(&mut self, node: ast::StmtImportFrom) {
         if let Some(module) = &node.module {
             self.deps.insert(stem_import(module));
@@ -66,6 +73,7 @@ impl Visitor for DependencyCollector {
     }
 }
 
+/// Given a valid directory, we will walk through all the `.py` files and collect the imports
 pub fn get_used_imports(dir: &Path) -> Result<HashSet<String>> {
     WalkDir::new(dir)
         .into_iter()
@@ -74,14 +82,16 @@ pub fn get_used_imports(dir: &Path) -> Result<HashSet<String>> {
         .try_fold(HashSet::new(), |mut acc, entry| {
             let file_content = fs::read_to_string(entry.path())?;
             let module = parse(&file_content, Mode::Module, "<embedded>")?;
-            let nodes = module.module().unwrap().body; // Maybe should do a match here??
-                                                       // let mut collected_deps: HashSet<String> = HashSet::new();
 
             let mut collector = DependencyCollector {
                 deps: HashSet::new(),
             };
 
-            nodes
+            // Visit AST and collect deps
+            module
+                .module()
+                .unwrap() //Prob should change this from unwrap to something else
+                .body
                 .into_iter()
                 .for_each(|node| collector.visit_stmt(node));
 
@@ -91,6 +101,7 @@ pub fn get_used_imports(dir: &Path) -> Result<HashSet<String>> {
         })
 }
 
+// This will 100% need revisited and extended out to requirements.txt
 fn visit_toml(value: &Value, deps: &mut HashSet<Dependency>, path: &str) {
     if let Value::Table(table) = value {
         table.iter().for_each(|(key, val)| match val {
@@ -114,20 +125,23 @@ fn visit_toml(value: &Value, deps: &mut HashSet<Dependency>, path: &str) {
     }
 }
 
+/// Given a path to a `pyproject.toml` file, we will collect all the dependencies
+/// from `[tool.poetry.*]`
+// This will 100% need revisited and extended out to requirements.txt
 fn get_dependencies_from_toml(path: &Path) -> Result<HashSet<Dependency>> {
     let toml_str = fs::read_to_string(path)
         .with_context(|| format!("Failed to read TOML file at {:?}", path))?;
     let toml = toml::from_str(&toml_str).with_context(|| "Failed to parse TOML content")?;
 
-    let mut collected_deps: HashSet<Dependency> = HashSet::new();
+    let mut deps = HashSet::new();
 
-    visit_toml(&toml, &mut collected_deps, "");
+    visit_toml(&toml, &mut deps, "");
 
-    Ok(collected_deps)
+    Ok(deps)
 }
 
 pub fn get_dependency_specification_file(base_dir: &Path) -> Result<PathBuf> {
-    let file = base_dir.ancestors().find_map(|dir| {
+    let file: Option<PathBuf> = base_dir.ancestors().find_map(|dir| {
         DEP_SPEC_FILES
             .into_iter()
             .map(|file_name| dir.join(file_name))
