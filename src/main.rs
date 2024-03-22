@@ -1,6 +1,3 @@
-mod cli;
-// mod exit_codes;
-
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use std::env;
@@ -29,9 +26,6 @@ fn run() -> Result<ExitCode> {
     let config = Config::build(opts)?;
     set_working_dir(&config)?;
     get_unused_dependencies(&config, std::io::stdout())
-
-    // This is a hack. I need to decide if I want to move everything to the library or not.
-    // Ok(ExitCode::Success)
 }
 
 fn set_working_dir(config: &Config) -> Result<()> {

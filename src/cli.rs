@@ -39,6 +39,13 @@ pub struct Opts {
     pub ignore_hidden: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Env {
+    Test,
+    Dev,
+    Prod,
+}
+
 pub struct Config {
     /// The path to the directory to search for Python files.
     pub base_directory: PathBuf,
@@ -48,7 +55,10 @@ pub struct Config {
     pub dep_spec_file: PathBuf,
 
     /// Whether to ignore hidden files and directories (or not).
-    ignore_hidden: bool,
+    pub ignore_hidden: bool,
+
+    /// The environment to run in.
+    pub env: Env,
 }
 
 impl Config {
@@ -60,6 +70,7 @@ impl Config {
             base_directory,
             dep_spec_file,
             ignore_hidden,
+            env: Env::Dev,
         })
     }
 }

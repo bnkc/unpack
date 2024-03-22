@@ -1,5 +1,7 @@
 use serde::Deserialize;
 
+use crate::exit_codes::ExitCode;
+use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 
@@ -23,6 +25,7 @@ enum OutputKind {
     Json,
 }
 
+// FIXME: we need to come back to Outcome and clean all this up
 impl Outcome {
     // pub fn print(&self, output_kind: OutputKind, stdout: impl Write) -> io::Result<()> {
     //     match output_kind {
@@ -39,7 +42,7 @@ impl Outcome {
         }
     }
 
-    pub fn print_human(&self, mut stdout: impl Write) -> io::Result<()> {
+    pub fn print_human(&self, mut stdout: impl Write) -> Result<ExitCode> {
         if self.success {
             writeln!(stdout, "All dependencies are used!")?;
         } else {
@@ -79,7 +82,7 @@ impl Outcome {
             }
         }
         stdout.flush()?;
-        Ok(())
+        Ok(ExitCode::Success)
     }
 
     #[allow(dead_code)]
@@ -95,6 +98,8 @@ pub struct SitePackages {
 }
 
 #[derive(Deserialize, Debug, PartialEq, Clone)]
+
+// FIXME: the mapping should NOT BE PUBLIC
 pub struct InstalledPackages {
     pub mapping: HashMap<String, HashSet<String>>,
 }
