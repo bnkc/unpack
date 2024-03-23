@@ -236,7 +236,7 @@ pub fn get_installed_packages(site_pkgs: SitePackages) -> Result<InstalledPackag
 
 // ignore error for now
 
-pub fn get_unused_dependencies<W: Write>(config: &Config, stdout: W) -> Result<ExitCode> {
+pub fn get_unused_dependencies<W: Write>(config: &Config, stdout: W) -> Result<Outcome> {
     // potential issues hypercorn that's used in a bash/bat script isn't picked up
     // another example would be flower
     let mut outcome = Outcome::default();
@@ -250,12 +250,7 @@ pub fn get_unused_dependencies<W: Write>(config: &Config, stdout: W) -> Result<E
 
     let used_imports = get_used_imports(&config.base_directory)?;
 
-    let used_pkgs: HashSet<_> = installed_pkgs
-        .mapping
-        .iter()
-        .filter(|(_pkg_name, import_names)| !import_names.is_disjoint(&used_imports))
-        .map(|(pkg_name, _)| pkg_name)
-        .collect();
+    let used_pkgs = installed_pkgs.filter_used_packages(&used_imports);
 
     outcome.unused_deps = pyproject_deps
         .into_iter()
@@ -271,7 +266,8 @@ pub fn get_unused_dependencies<W: Write>(config: &Config, stdout: W) -> Result<E
         outcome.note = Some(note);
     }
 
-    outcome.print_human(stdout)
+    // return the outcome struct
+    Ok(outcome)
 }
 
 #[cfg(test)]
@@ -343,38 +339,17 @@ mod tests {
         }
     }
 
-    // ///Create a sample project directory with a pyproject.toml file and a few python files
-    // fn sample_project_directory() -> PathBuf {
-    //     let temp_dir = create_working_directory(
-    //         &["dir1", "dir2"],
-    //         Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
-    //     )
-    //     .unwrap();
-    //     // temp_dir.into_path().join("dir1")
-    //     let base_directory = temp_dir.path().join("dir1");
-    //     let pyproject_path: PathBuf = base_directory.join("pyproject.toml");
-    //     let mut file = File::create(&pyproject_path).unwrap();
-    //     file.write_all(
-    //         r#"
-    //                 [tool.poetry.dependencies]
-    //                 requests = "2.25.1"
-    //                 python = "^3.8"
-    //                 "#
-    //         .as_bytes(),
-    //     )
-    //     .unwrap();
+    #[bench]
+    fn bench_get_used_imports(b: &mut Bencher) {
+        let te = TestEnv::new(&["dir1", "dir2"], Some(&["file1.py"]));
+        b.iter(|| get_used_imports(&te.config.base_directory));
+    }
 
-    //     base_directory
-    // }
-
-    // #[bench]
-    // fn bench_get_used_imports(b: &mut Bencher) {
-    //     let base_directory = sample_project_directory();
-    //     let file_path = base_directory.join("file1.py");
-    //     let mut file = File::create(file_path).unwrap();
-    //     file.write_all(b"import os, sys").unwrap();
-    //     b.iter(|| get_used_imports(&base_directory));
-    // }
+    #[bench]
+    fn bench_get_dependencies_from_toml(b: &mut Bencher) {
+        let te = TestEnv::new(&["dir1", "dir2"], Some(&["pyproject.toml"]));
+        b.iter(|| get_dependencies_from_toml(&te.config.dep_spec_file));
+    }
 
     #[test]
     fn basic_usage() {
@@ -384,8 +359,31 @@ mod tests {
         );
 
         let unused_deps = get_unused_dependencies(&te.config, io::stdout());
-        println!("{:?}", unused_deps);
         assert!(unused_deps.is_ok());
+
+        let outcome = unused_deps.unwrap();
+        assert_eq!(outcome.success, false); // There should be unused dependencies
+
+        // This is because we use python by default
+        assert_eq!(
+            outcome.unused_deps.len(),
+            1,
+            "There should be 1 unused dependency"
+        );
+        assert_eq!(outcome.unused_deps.iter().next().unwrap().name, "requests");
+
+        // Now let's import requests in file1.py
+        let file_path = te.config.base_directory.join("file1.py");
+        let mut file = File::create(file_path).unwrap();
+        file.write_all("import requests".as_bytes()).unwrap();
+
+        let unused_deps = get_unused_dependencies(&te.config, io::stdout());
+        assert!(unused_deps.is_ok());
+
+        // check that there are no unused dependencies
+        let outcome = unused_deps.unwrap();
+        assert_eq!(outcome.success, true);
+        assert_eq!(outcome.unused_deps.len(), 0);
     }
 
     #[test]
@@ -399,6 +397,33 @@ mod tests {
         let first_part = stem_import("");
         assert_eq!(first_part.as_str(), "");
     }
+
+    #[test]
+    fn get_used_imports_correctly_collects() {
+        let te = TestEnv::new(
+            &["dir1", "dir2"],
+            Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
+        );
+
+        let used_imports = get_used_imports(&te.config.base_directory);
+        assert!(used_imports.is_ok());
+
+        let used_imports = used_imports.unwrap();
+        assert_eq!(used_imports.len(), 0);
+
+        let file_path = te.config.base_directory.join("file1.py");
+        let mut file = File::create(file_path).unwrap();
+        file.write_all(r#"import pandas as pd"#.as_bytes()).unwrap();
+
+        let used_imports = get_used_imports(&te.config.base_directory);
+        assert!(used_imports.is_ok());
+
+        let used_imports = used_imports.unwrap();
+        assert_eq!(used_imports.len(), 1);
+        assert!(used_imports.contains("pandas"));
+        assert!(!used_imports.contains("sklearn"));
+    }
+
     // #[test]
     // fn parse_ast_working() {
     //     let file_content = "import os";

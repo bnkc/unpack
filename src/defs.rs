@@ -102,7 +102,7 @@ pub struct SitePackages {
 
 // FIXME: the mapping should NOT BE PUBLIC
 pub struct InstalledPackages {
-    pub mapping: HashMap<String, HashSet<String>>,
+    mapping: HashMap<String, HashSet<String>>,
 }
 
 impl InstalledPackages {
@@ -114,5 +114,14 @@ impl InstalledPackages {
     pub fn add_pkg(&mut self, pkg_name: String, import_names: HashSet<String>) {
         let pkg_name = pkg_name.replace("_", "-");
         self.mapping.insert(pkg_name, import_names);
+    }
+
+    pub fn filter_used_packages(&self, used_imports: &HashSet<String>) -> HashSet<String> {
+        self.mapping
+            .iter()
+            .filter(|(_pkg_name, import_names)| !import_names.is_disjoint(used_imports))
+            .map(|(pkg_name, _)| pkg_name)
+            .cloned()
+            .collect()
     }
 }
