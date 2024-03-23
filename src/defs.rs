@@ -4,6 +4,7 @@ use crate::exit_codes::ExitCode;
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
+use std::path::PathBuf;
 
 #[derive(Deserialize, Debug, PartialEq, Clone, Eq, Hash)]
 pub struct Dependency {
@@ -93,7 +94,7 @@ impl Outcome {
 
 #[derive(Deserialize, Debug, PartialEq, Clone)]
 pub struct SitePackages {
-    pub paths: Vec<String>,
+    pub paths: Vec<PathBuf>,
     pub venv: Option<String>,
 }
 

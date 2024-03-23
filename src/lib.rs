@@ -10,6 +10,7 @@ use std::env;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 use std::str;
 
@@ -159,13 +160,13 @@ pub fn get_site_package_dir(config: &Config) -> Result<SitePackages> {
         .context("Output was not valid UTF-8.")?
         .trim();
 
-    let pkg_paths: Vec<String> = output_str
+    let pkg_paths: Vec<PathBuf> = output_str
         .lines()
         .filter(|line| {
             line.contains("site-packages") && !line.trim_start().starts_with("USER_SITE:")
         })
         .map(|s| s.trim_matches(|c: char| c.is_whitespace() || c == '\'' || c == ','))
-        .map(ToString::to_string)
+        .map(PathBuf::from)
         .collect();
 
     if pkg_paths.is_empty() {
@@ -202,7 +203,8 @@ pub fn get_installed_packages(site_pkgs: SitePackages) -> Result<InstalledPackag
     let mut pkgs = InstalledPackages::new();
 
     for path in site_pkgs.paths {
-        let glob_pattern = format!("{}/{}-info", path, "*");
+        let glob_pattern = format!("{}/{}-info", path.display(), "*");
+
         for entry in glob(&glob_pattern).context("Failed to read glob pattern")? {
             let info_dir = entry.context("Invalid glob entry")?;
             let pkg_name = info_dir
@@ -376,41 +378,14 @@ mod tests {
 
     #[test]
     fn basic_usage() {
-        // let config = test_config();
-        // let base_directory = sample_project_directory();
         let te = TestEnv::new(
             &["dir1", "dir2"],
             Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
         );
-        // let temp_dir = create_working_directory(
-        //     &["dir1", "dir2"],
-        //     Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
-        // )
-        // .unwrap();
-        // // temp_dir.into_path().join("dir1")
-        // let base_directory = temp_dir.path().join("dir1");
-        // let pyproject_path: PathBuf = base_directory.join("pyproject.toml");
-        // let mut file = File::create(&pyproject_path).unwrap();
-        // file.write_all(
-        //     r#"
-        //             [tool.poetry.dependencies]
-        //             requests = "2.25.1"
-        //             python = "^3.8"
-        //             "#
-        //     .as_bytes(),
-        // )
-        // .unwrap();
 
-        // let config = Config {
-        //     base_directory: base_directory.clone(),
-        //     dep_spec_file: base_directory.join("pyproject.toml"),
-        //     ignore_hidden: false,
-        //     env: Env::Test,
-        // };
-
-        let result = get_unused_dependencies(&te.config, io::stdout());
-        println!("{:?}", result);
-        // assert!(result.is_ok());
+        let unused_deps = get_unused_dependencies(&te.config, io::stdout());
+        println!("{:?}", unused_deps);
+        assert!(unused_deps.is_ok());
     }
 
     #[test]
