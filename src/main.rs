@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::Parser;
 use std::env;
 
@@ -26,14 +26,14 @@ fn run() -> Result<ExitCode> {
     let config = Config::build(opts)?;
     set_working_dir(&config)?;
     let outcome = get_unused_dependencies(&config)?;
-    outcome.print_human(std::io::stdout())
+    outcome.print_result(config.output, std::io::stdout())
 }
 
 fn set_working_dir(config: &Config) -> Result<()> {
     if !config.base_directory.exists() {
-        return Err(anyhow!("The provided path does not exist."));
+        bail!("The provided path does not exist.");
     } else if !config.base_directory.is_dir() {
-        return Err(anyhow!("The provided path is not a directory."));
+        bail!("The provided path is not a directory.");
     }
     env::set_current_dir(&config.base_directory).with_context(|| {
         format!(

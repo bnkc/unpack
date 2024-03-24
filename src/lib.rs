@@ -17,7 +17,7 @@ use crate::cli::*;
 use crate::defs::{Dependency, InstalledPackages, Outcome, SitePackages};
 use crate::exit_codes::*;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{bail, Context, Result};
 use colored::Colorize;
 use dialoguer::Confirm;
 use glob::glob;
@@ -67,12 +67,16 @@ impl Visitor for DependencyCollector {
     }
 }
 
-/// Given a valid directory, we will walk through all the `.py` files and collect the imports
-pub fn get_used_imports(dir: &Path) -> Result<HashSet<String>> {
-    WalkDir::new(dir)
+pub fn get_used_imports(config: &Config) -> Result<HashSet<String>> {
+    WalkDir::new(&config.base_directory)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|entry| entry.file_name().to_string_lossy().ends_with(".py"))
+        .filter(|entry| {
+            let file_name = entry.file_name().to_string_lossy();
+
+            // Ignore hidden files and directories if `ignore_hidden` is set to true
+            file_name.ends_with(".py") && !(config.ignore_hidden && file_name.starts_with("."))
+        })
         .try_fold(HashSet::new(), |mut acc, entry| {
             let file_content = fs::read_to_string(entry.path())?;
             let module = parse(&file_content, Mode::Module, "<embedded>")?;
@@ -169,9 +173,7 @@ pub fn get_site_package_dir(config: &Config) -> Result<SitePackages> {
         .collect();
 
     if pkg_paths.is_empty() {
-        return Err(anyhow!(
-            "No site-packages found. Are you sure you are in a virtual environment?"
-        ));
+        bail!("No site-packages found. Are you sure you are in a virtual environment?");
     }
 
     let venv = env::var("VIRTUAL_ENV")
@@ -244,7 +246,7 @@ pub fn get_unused_dependencies(config: &Config) -> Result<Outcome> {
 
     let installed_pkgs = get_installed_packages(site_pkgs)?;
 
-    let used_imports = get_used_imports(&config.base_directory)?;
+    let used_imports = get_used_imports(&config)?;
 
     let used_pkgs = installed_pkgs.filter_used_pkgs(&used_imports);
 
@@ -270,6 +272,7 @@ mod tests {
 
     use super::*;
 
+    use defs::OutputKind;
     use std::fs::File;
     use std::io::Write;
     use std::io::{self};
@@ -300,7 +303,7 @@ mod tests {
 
     struct TestEnv {
         /// Temporary project directory
-        // temp_dir: TempDir,
+        _temp_dir: TempDir,
 
         /// Test Configuration struct
         config: Config,
@@ -329,16 +332,20 @@ mod tests {
                 dep_spec_file: pyproject_path,
                 ignore_hidden: false,
                 env: Env::Test,
+                output: OutputKind::Human,
             };
 
-            Self { config }
+            Self {
+                _temp_dir: temp_dir,
+                config,
+            }
         }
     }
 
     #[bench]
     fn bench_get_used_imports(b: &mut Bencher) {
         let te = TestEnv::new(&["dir1", "dir2"], Some(&["file1.py"]));
-        b.iter(|| get_used_imports(&te.config.base_directory));
+        b.iter(|| get_used_imports(&te.config));
     }
 
     #[bench]
@@ -419,7 +426,7 @@ mod tests {
             Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
         );
 
-        let used_imports = get_used_imports(&te.config.base_directory);
+        let used_imports = get_used_imports(&te.config);
         assert!(used_imports.is_ok());
 
         let used_imports = used_imports.unwrap();
@@ -429,7 +436,7 @@ mod tests {
         let mut file = File::create(file_path).unwrap();
         file.write_all(r#"import pandas as pd"#.as_bytes()).unwrap();
 
-        let used_imports = get_used_imports(&te.config.base_directory);
+        let used_imports = get_used_imports(&te.config);
         assert!(used_imports.is_ok());
 
         let used_imports = used_imports.unwrap();

@@ -1,19 +1,21 @@
-use serde::Deserialize;
-
 use crate::exit_codes::ExitCode;
+
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::io::{self, Write};
+use std::io::Write;
 use std::path::PathBuf;
 
-#[derive(Deserialize, Debug, PartialEq, Clone, Eq, Hash)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Clone, Eq, Hash)]
+
 pub struct Dependency {
     pub name: String,
     pub type_: Option<String>,
     pub version: Option<String>,
 }
 
-#[derive(Deserialize, Debug, PartialEq, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
+
 pub struct Outcome {
     pub success: bool,
     pub unused_deps: HashSet<Dependency>,
@@ -21,26 +23,28 @@ pub struct Outcome {
 }
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug)]
-enum OutputKind {
+pub enum OutputKind {
     Human,
     Json,
 }
 
-// FIXME: we need to come back to Outcome and clean all this up
 impl Outcome {
-    // pub fn print(&self, output_kind: OutputKind, stdout: impl Write) -> io::Result<()> {
-    //     match output_kind {
-    //         OutputKind::Human => self.print_human(stdout),
-    //         OutputKind::Json => self.print_json(stdout),
-    //     }
-    // }
-
-    fn edge_and_joint(is_last: bool) -> (char, char) {
-        if is_last {
-            (' ', '└')
-        } else {
-            ('│', '├')
+    pub fn print_result(&self, output_kind: OutputKind, stdout: impl Write) -> Result<ExitCode> {
+        match output_kind {
+            OutputKind::Human => self.print_human(stdout),
+            OutputKind::Json => self.print_json(stdout),
         }
+    }
+
+    fn group_unused_deps(&self) -> HashMap<Option<String>, Vec<&Dependency>> {
+        let mut deps_by_type: HashMap<Option<String>, Vec<&Dependency>> = HashMap::new();
+        for dep in &self.unused_deps {
+            deps_by_type
+                .entry(dep.type_.clone())
+                .or_insert_with(Vec::new)
+                .push(dep);
+        }
+        deps_by_type
     }
 
     pub fn print_human(&self, mut stdout: impl Write) -> Result<ExitCode> {
@@ -49,27 +53,17 @@ impl Outcome {
         } else {
             writeln!(stdout, "\nUnused dependencies:")?;
 
-            // Group dependencies by type
-            let mut deps_by_type: HashMap<Option<String>, Vec<&Dependency>> = HashMap::new();
-            for dep in &self.unused_deps {
-                deps_by_type
-                    .entry(dep.type_.clone())
-                    .or_insert_with(Vec::new)
-                    .push(dep);
-            }
-
-            // Iterate over grouped dependencies
-            for (type_, deps) in &deps_by_type {
+            let grouped_deps = Outcome::group_unused_deps(&self);
+            for (type_, deps) in &grouped_deps {
                 let type_label = type_.as_ref().map_or("General", String::as_str);
                 writeln!(stdout, "\n[{}]", type_label)?;
 
-                // Sort dependencies by name for consistent output
                 let mut sorted_deps = deps.iter().collect::<Vec<_>>();
                 sorted_deps.sort_by_key(|dep| &dep.name);
 
                 for (i, dep) in sorted_deps.iter().enumerate() {
                     let is_last = i == sorted_deps.len() - 1;
-                    let (_, joint) = Outcome::edge_and_joint(is_last);
+                    let joint = if is_last { '└' } else { '├' };
                     if let Some(version) = &dep.version {
                         writeln!(stdout, "{}─── {} = \"{}\"", joint, dep.name, version)?;
                     } else {
@@ -86,9 +80,11 @@ impl Outcome {
         Ok(ExitCode::Success)
     }
 
-    #[allow(dead_code)]
-    pub fn print_json(&self, mut stdout: impl Write) -> io::Result<()> {
-        stdout.flush()
+    fn print_json(&self, mut stdout: impl Write) -> Result<ExitCode> {
+        let json = serde_json::to_string(self).expect("Failed to serialize to JSON.");
+        writeln!(stdout, "{}", json)?;
+        stdout.flush()?;
+        Ok(ExitCode::Success)
     }
 }
 
