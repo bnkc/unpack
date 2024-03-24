@@ -8,7 +8,6 @@ pub mod exit_codes;
 use std::collections::HashSet;
 use std::env;
 use std::fs;
-use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -201,6 +200,7 @@ pub fn get_site_package_dir(config: &Config) -> Result<SitePackages> {
     })
 }
 
+/// Given a `SitePackages` struct, we will collect all the installed packages on the system
 pub fn get_installed_packages(site_pkgs: SitePackages) -> Result<InstalledPackages> {
     let mut pkgs = InstalledPackages::new();
 
@@ -236,14 +236,10 @@ pub fn get_installed_packages(site_pkgs: SitePackages) -> Result<InstalledPackag
     Ok(pkgs)
 }
 
-// ignore error for now
-
-pub fn get_unused_dependencies<W: Write>(config: &Config, stdout: W) -> Result<Outcome> {
-    // potential issues hypercorn that's used in a bash/bat script isn't picked up
-    // another example would be flower
+// Can't read bash or bat scripts. WIll need to return to this issue
+pub fn get_unused_dependencies(config: &Config) -> Result<Outcome> {
     let mut outcome = Outcome::default();
 
-    // let deps_file = get_dependency_specification_file(&base_dir)?;
     let pyproject_deps = get_dependencies_from_toml(&config.dep_spec_file)?;
 
     let site_pkgs = get_site_package_dir(&config)?;
@@ -268,7 +264,6 @@ pub fn get_unused_dependencies<W: Write>(config: &Config, stdout: W) -> Result<O
         outcome.note = Some(note);
     }
 
-    // return the outcome struct
     Ok(outcome)
 }
 
@@ -278,8 +273,8 @@ mod tests {
     use super::*;
 
     use std::fs::File;
+    use std::io::Write;
     use std::io::{self};
-    use std::path::PathBuf;
     use tempfile::TempDir;
     use test::Bencher;
 
@@ -307,7 +302,7 @@ mod tests {
 
     struct TestEnv {
         /// Temporary project directory
-        temp_dir: TempDir,
+        // temp_dir: TempDir,
 
         /// Test Configuration struct
         config: Config,
@@ -325,6 +320,7 @@ mod tests {
                             [tool.poetry.dependencies]
                             requests = "2.25.1"
                             python = "^3.8"
+                            pandas = "^1.2.0"
                             "#
                 .as_bytes(),
             )
@@ -337,7 +333,7 @@ mod tests {
                 env: Env::Test,
             };
 
-            Self { temp_dir, config }
+            Self { config }
         }
     }
 
@@ -360,7 +356,7 @@ mod tests {
             Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
         );
 
-        let unused_deps = get_unused_dependencies(&te.config, io::stdout());
+        let unused_deps = get_unused_dependencies(&te.config);
         assert!(unused_deps.is_ok());
 
         let outcome = unused_deps.unwrap();
@@ -369,23 +365,41 @@ mod tests {
         // This is because we use python by default
         assert_eq!(
             outcome.unused_deps.len(),
-            1,
-            "There should be 1 unused dependency"
+            2,
+            "There should be 2 unused dependencies"
         );
-        assert_eq!(outcome.unused_deps.iter().next().unwrap().name, "requests");
+        // assert_eq!(outcome.unused_deps.iter().next().unwrap().name, "pandas");
+        assert!(outcome
+            .unused_deps
+            .iter()
+            .any(|dep| dep.name == "pandas" || dep.name == "requests"));
 
         // Now let's import requests in file1.py
         let file_path = te.config.base_directory.join("file1.py");
         let mut file = File::create(file_path).unwrap();
         file.write_all("import requests".as_bytes()).unwrap();
 
-        let unused_deps = get_unused_dependencies(&te.config, io::stdout());
+        let unused_deps = get_unused_dependencies(&te.config);
         assert!(unused_deps.is_ok());
 
         // check that there are no unused dependencies
         let outcome = unused_deps.unwrap();
-        assert_eq!(outcome.success, true);
-        assert_eq!(outcome.unused_deps.len(), 0);
+        assert_eq!(outcome.success, false);
+        assert_eq!(outcome.unused_deps.len(), 1);
+
+        // Now let's import requests in file1.py
+        let file_path = te.config.base_directory.join("file1.py");
+        let mut file = File::create(file_path).unwrap();
+        file.write_all("import requests\nimport pandas as pd".as_bytes())
+            .unwrap();
+
+        let unused_deps = get_unused_dependencies(&te.config);
+        assert!(unused_deps.is_ok());
+        assert_eq!(
+            unused_deps.unwrap().unused_deps.len(),
+            0,
+            "There should be no unused dependency"
+        );
     }
 
     #[test]

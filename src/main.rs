@@ -25,7 +25,7 @@ fn run() -> Result<ExitCode> {
     let opts = Opts::parse();
     let config = Config::build(opts)?;
     set_working_dir(&config)?;
-    let outcome = get_unused_dependencies(&config, std::io::stdout())?;
+    let outcome = get_unused_dependencies(&config)?;
     outcome.print_human(std::io::stdout())
 }
 
