@@ -150,9 +150,7 @@ pub fn get_site_package_dir(config: &Config) -> Result<SitePackages> {
     let output = match Command::new("python").arg("-m").arg("site").output() {
         Ok(o) => o,
         Err(_) => {
-            print_error(format!(
-                "Failed to execute `python -m site`. Are you sure Python is installed?"
-            ));
+            print_error("Failed to execute `python -m site`. Are you sure Python is installed?");
             ExitCode::GeneralError.exit();
         }
     };
