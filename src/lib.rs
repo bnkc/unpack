@@ -134,6 +134,7 @@ fn get_dependencies_from_toml(path: &Path) -> Result<HashSet<Dependency>> {
     Ok(deps)
 }
 
+/// Given a virtual environment, we will prompt the user to confirm if it is the correct one
 fn get_prompt(venv: &Option<String>) -> String {
     match venv {
         Some(name) => format!("Detected virtual environment: `{}`. Is this correct?", name),
@@ -145,6 +146,7 @@ fn get_prompt(venv: &Option<String>) -> String {
     }
 }
 
+/// Collect the site-packages directory path(s) and the virtual environment name
 pub fn get_site_package_dir(config: &Config) -> Result<SitePackages> {
     let output = match Command::new("python").arg("-m").arg("site").output() {
         Ok(o) => o,
@@ -250,7 +252,7 @@ pub fn get_unused_dependencies<W: Write>(config: &Config, stdout: W) -> Result<O
 
     let used_imports = get_used_imports(&config.base_directory)?;
 
-    let used_pkgs = installed_pkgs.filter_used_packages(&used_imports);
+    let used_pkgs = installed_pkgs.filter_used_pkgs(&used_imports);
 
     outcome.unused_deps = pyproject_deps
         .into_iter()
@@ -424,153 +426,122 @@ mod tests {
         assert!(!used_imports.contains("sklearn"));
     }
 
-    // #[test]
-    // fn parse_ast_working() {
-    //     let file_content = "import os";
-    //     let ast = parse_ast(file_content);
-    //     assert!(ast.is_ok());
+    #[test]
+    fn correct_promt_from_get_prompt() {
+        let venv = Some("test-venv".to_string());
+        let prompt = get_prompt(&venv);
+        assert_eq!(
+            prompt,
+            "Detected virtual environment: `test-venv`. Is this correct?"
+        );
 
-    //     let file_content = "import os, sys";
-    //     let ast = parse_ast(file_content);
-    //     assert!(ast.is_ok());
+        let venv = None;
+        let prompt = get_prompt(&venv);
+        assert_eq!(
+            prompt,
+            "WARNING: No virtual environment detected. Results may be inaccurate. Continue?"
+                .red()
+                .to_string()
+        );
+    }
 
-    //     let file_content = "import os";
-    //     let ast = parse_ast(file_content).unwrap();
+    #[test]
+    fn get_site_package_dir_success() {
+        let te = TestEnv::new(&["dir1", "dir2"], Some(&["pyproject.toml"]));
 
-    //     assert_eq!(ast.clone().module().unwrap().body.len(), 1);
+        let site_pkgs = get_site_package_dir(&te.config).unwrap();
 
-    //     let body = &ast.module().unwrap().body;
-    //     let mut temp_deps_set: HashSet<String> = HashSet::new();
-    //     collect_imports(body, &mut temp_deps_set);
+        assert!(!site_pkgs.paths.is_empty());
 
-    //     assert_eq!(temp_deps_set.len(), 1);
-    //     assert!(temp_deps_set.contains("os"));
-    // }
+        let venv_name = env::var("VIRTUAL_ENV")
+            .ok()
+            .and_then(|path| path.split('/').last().map(String::from));
+        assert_eq!(site_pkgs.venv, venv_name);
+    }
 
-    // #[test]
-    // fn parse_ast_failing() {
-    //     let file_content = "import os,";
-    //     let ast = parse_ast(file_content);
-    //     assert!(ast.is_err());
-    // }
-    // #[test]
-    // fn collect_imports_success() {
-    //     let file_content = "import os";
-    //     let ast = parse_ast(file_content).unwrap();
-    //     let body = &ast.module().unwrap().body;
-    //     let mut temp_deps_set: HashSet<String> = HashSet::new();
-    //     collect_imports(body, &mut temp_deps_set);
-    //     assert_eq!(temp_deps_set.len(), 1);
-    //     assert!(temp_deps_set.contains("os"));
+    #[test]
 
-    //     let file_content = "import os, sys";
-    //     let ast = parse_ast(file_content).unwrap();
-    //     let body = &ast.module().unwrap().body;
-    //     let mut temp_deps_set: HashSet<String> = HashSet::new();
-    //     collect_imports(body, &mut temp_deps_set);
-    //     assert_eq!(temp_deps_set.len(), 2);
-    //     assert!(temp_deps_set.contains("os"));
-    //     assert!(temp_deps_set.contains("sys"));
+    fn get_installed_packages_correctly_maps() {
+        // Create a temporary environment resembling site-packages
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let site_packages_dir = temp_dir.path().join("site-packages");
+        fs::create_dir(&site_packages_dir).unwrap();
 
-    //     let file_content = "from os import path";
-    //     let ast: ast::Mod = parse_ast(file_content).unwrap();
-    //     let body = &ast.module().unwrap().body;
-    //     let mut temp_deps_set: HashSet<String> = HashSet::new();
-    //     collect_imports(body, &mut temp_deps_set);
-    //     assert_eq!(temp_deps_set.len(), 1);
-    //     assert!(temp_deps_set.contains("os"));
-    // }
+        // Simulate a couple of installed packages with top_level.txt files
+        let pkg1_dir = site_packages_dir.join("example_pkg1-0.1.0-info");
+        fs::create_dir_all(&pkg1_dir).unwrap();
+        fs::write(pkg1_dir.join("top_level.txt"), "example_pkg1\n").unwrap();
 
-    // #[test]
-    // fn collect_imports_failure() {
-    //     let file_content = "import os,";
-    //     let ast = parse_ast(file_content);
-    //     assert!(ast.is_err());
+        let pkg2_dir = site_packages_dir.join("example_pkg2-0.2.0-info");
+        fs::create_dir_all(&pkg2_dir).unwrap();
+        fs::write(pkg2_dir.join("top_level.txt"), "example_pkg2\n").unwrap();
 
-    //     let file_content = "from os import path, sys";
-    //     let ast = parse_ast(file_content).unwrap();
-    //     let body = &ast.module().unwrap().body;
-    //     let mut temp_deps_set: HashSet<String> = HashSet::new();
-    //     collect_imports(body, &mut temp_deps_set);
-    //     assert_eq!(temp_deps_set.len(), 1);
-    //     assert!(temp_deps_set.contains("os"));
-    // }
+        // lets do another package like scikit_learn where we know the name will get remapped to sklearn
+        let pkg3_dir = site_packages_dir.join("scikit_learn-0.24.1-info");
+        fs::create_dir_all(&pkg3_dir).unwrap();
+        fs::write(pkg3_dir.join("top_level.txt"), "sklearn\n").unwrap();
 
-    // #[test]
-    // fn get_dependency_specification_file_that_exists() {
-    //     let temp_dir =
-    //         create_working_directory(&["dir1", "dir2"], Some(&["pyproject.toml"])).unwrap();
-    //     let base_directory = temp_dir.path().join("dir1");
-    //     let file = get_dependency_specification_file(&base_directory).unwrap();
-    //     assert_eq!(file.file_name().unwrap(), "pyproject.toml");
-    // }
+        let site_pkgs = SitePackages {
+            paths: vec![site_packages_dir],
+            venv: Some("test-venv".to_string()),
+        };
 
-    // #[test]
-    // fn get_dependency_specification_file_that_does_not_exist() {
-    //     let temp_dir = create_working_directory(&["dir1", "dir2"], None).unwrap();
-    //     let base_directory = temp_dir.path().join("dir1");
-    //     let file = get_dependency_specification_file(&base_directory);
-    //     assert!(file.is_err());
-    // }
+        let installed_pkgs = get_installed_packages(site_pkgs).unwrap();
 
-    // #[test]
-    // fn test_get_used_dependencies() {
-    //     let temp_dir = create_working_directory(
-    //         &["dir1", "dir2"],
-    //         Some(&["requirements.txt", "pyproject.toml"]),
-    //     )
-    //     .unwrap();
-    //     let base_directory = temp_dir.path().join("dir1");
-    //     let used_dependencies = get_used_imports(&base_directory).unwrap();
-    //     assert_eq!(used_dependencies.len(), 0);
+        assert_eq!(
+            installed_pkgs._mapping().len(),
+            3,
+            "Should have found two installed packages"
+        );
 
-    //     let temp_dir = create_working_directory(
-    //         &["dir1", "dir2"],
-    //         Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
-    //     )
-    //     .unwrap();
-    //     let base_directory = temp_dir.path().join("dir1");
-    //     let used_dependencies = get_used_imports(&base_directory).unwrap();
-    //     assert_eq!(used_dependencies.len(), 0);
+        // Assert that the package names and import names are correct
+        assert!(
+            installed_pkgs._mapping().get("example-pkg1").is_some(),
+            "Should contain example_pkg1"
+        );
 
-    //     let temp_dir = create_working_directory(
-    //         &["dir1", "dir2"],
-    //         Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
-    //     )
-    //     .unwrap();
-    //     let base_directory = temp_dir.path().join("dir2");
-    //     let used_dependencies = get_used_imports(&base_directory).unwrap();
-    //     assert_eq!(used_dependencies.len(), 0);
+        assert!(
+            installed_pkgs
+                ._mapping()
+                .get("example-pkg1")
+                .unwrap()
+                .contains("example_pkg1"),
+            "example-pkg1 should contain example_pkg1"
+        );
+        assert!(
+            installed_pkgs._mapping().get("example-pkg2").is_some(),
+            "Should contain example_pkg2"
+        );
 
-    //     let temp_dir = create_working_directory(
-    //         &["dir1", "dir2"],
-    //         Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
-    //     )
-    //     .unwrap();
-    //     let base_directory = temp_dir.path().join("dir1");
-    //     let file_path = base_directory.join("file1.py");
-    //     let mut file = File::create(file_path).unwrap();
-    //     file.write_all("import os".as_bytes()).unwrap();
+        assert!(
+            installed_pkgs
+                ._mapping()
+                .get("example-pkg2")
+                .unwrap()
+                .contains("example_pkg2"),
+            "example-pkg2 should contain example_pkg2"
+        );
 
-    //     let used_dependencies = get_used_imports(&base_directory).unwrap();
-    //     assert_eq!(used_dependencies.len(), 1);
-    //     assert!(used_dependencies.contains("os"));
+        assert!(
+            installed_pkgs._mapping().get("scikit-learn").is_some(),
+            "Should contain scikit_learn"
+        );
 
-    //     let temp_dir = create_working_directory(
-    //         &["dir1", "dir2"],
-    //         Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
-    //     )
-    //     .unwrap();
-    //     let base_directory = temp_dir.path().join("dir1");
-    //     let file_path = base_directory.join("file1.py");
-    //     let mut file = File::create(file_path).unwrap();
-    //     file.write_all(b"import os, sys").unwrap();
-    //     let used_dependencies = get_used_imports(&base_directory).unwrap();
-    //     assert_eq!(used_dependencies.len(), 2);
-    //     assert!(used_dependencies.contains("os"));
-    // }
+        assert!(
+            installed_pkgs
+                ._mapping()
+                .get("scikit-learn")
+                .unwrap()
+                .contains("sklearn"),
+            "scikit_learn should contain sklearn"
+        );
+        // non-existent package
+        assert!(
+            !installed_pkgs._mapping().get("non-existent").is_some(),
+            "Should not contain non-existent"
+        );
+    }
 
-    // Need to write tests for get_packages_from_pyproject_toml here
     // #[test]
     // fn get_deps_from_pyproject_toml_success() {
     //     let temp_dir =
@@ -596,107 +567,5 @@ mod tests {
     //     assert!(packages.contains(&PyProjectDeps {
     //         name: "python".to_string()
     //     }));
-    // }
-    // #[test]
-    // fn get_site_package_dir_success() {
-    //     std::env::set_var("RUNNING_TESTS", "1");
-
-    //     let site_packages = get_site_package_dir().unwrap();
-    //     assert!(!site_packages.paths[0].is_empty());
-
-    //     let is_venv = env::var("VIRTUAL_ENV").is_ok();
-
-    //     if is_venv {
-    //         let venv_name = env::var("VIRTUAL_ENV")
-    //             .ok()
-    //             .and_then(|path| path.split('/').last().map(String::from));
-    //         assert_eq!(site_packages.venv, venv_name);
-    //     }
-    // }
-
-    // #[test]
-
-    // fn check_that_get_installed_pkgs_works() {
-    //     // Create a temporary environment resembling site-packages
-    //     let temp_dir = tempfile::TempDir::new().unwrap();
-    //     let site_packages_dir = temp_dir.path().join("site-packages");
-    //     fs::create_dir(&site_packages_dir).unwrap();
-
-    //     // Simulate a couple of installed packages with top_level.txt files
-    //     let pkg1_dir = site_packages_dir.join("example_pkg1-0.1.0-info");
-    //     fs::create_dir_all(&pkg1_dir).unwrap();
-    //     fs::write(pkg1_dir.join("top_level.txt"), "example_pkg1\n").unwrap();
-
-    //     let pkg2_dir = site_packages_dir.join("example_pkg2-0.2.0-info");
-    //     fs::create_dir_all(&pkg2_dir).unwrap();
-    //     fs::write(pkg2_dir.join("top_level.txt"), "example_pkg2\n").unwrap();
-
-    //     // lets do another package like scikit_learn where we know the name will get remapped to sklearn
-    //     let pkg3_dir = site_packages_dir.join("scikit_learn-0.24.1-info");
-    //     fs::create_dir_all(&pkg3_dir).unwrap();
-    //     fs::write(pkg3_dir.join("top_level.txt"), "sklearn\n").unwrap();
-
-    //     let site_pkgs = SitePackages {
-    //         paths: vec![
-    //             site_packages_dir.to_string_lossy().to_string(),
-    //             "/usr/lib/python3.8/site-packages".to_string(),
-    //         ],
-    //         venv: Some("test-venv".to_string()),
-    //     };
-
-    //     let installed_pkgs = get_installed_packages(site_pkgs).unwrap();
-
-    //     assert_eq!(
-    //         installed_pkgs.mapping.len(),
-    //         3,
-    //         "Should have found two installed packages"
-    //     );
-
-    //     // Assert that the package names and import names are correct
-    //     assert!(
-    //         installed_pkgs.mapping.get("example-pkg1").is_some(),
-    //         "Should contain example_pkg1"
-    //     );
-
-    //     assert!(
-    //         installed_pkgs
-    //             .mapping
-    //             .get("example-pkg1")
-    //             .unwrap()
-    //             .contains("example_pkg1"),
-    //         "example-pkg1 should contain example_pkg1"
-    //     );
-    //     assert!(
-    //         installed_pkgs.mapping.get("example-pkg2").is_some(),
-    //         "Should contain example_pkg2"
-    //     );
-
-    //     assert!(
-    //         installed_pkgs
-    //             .mapping
-    //             .get("example-pkg2")
-    //             .unwrap()
-    //             .contains("example_pkg2"),
-    //         "example-pkg2 should contain example_pkg2"
-    //     );
-
-    //     assert!(
-    //         installed_pkgs.mapping.get("scikit-learn").is_some(),
-    //         "Should contain scikit_learn"
-    //     );
-
-    //     assert!(
-    //         installed_pkgs
-    //             .mapping
-    //             .get("scikit-learn")
-    //             .unwrap()
-    //             .contains("sklearn"),
-    //         "scikit_learn should contain sklearn"
-    //     );
-    //     // non-existent package
-    //     assert!(
-    //         installed_pkgs.mapping.get("non-existent").is_some(),
-    //         "Should not contain non-existent"
-    //     );
     // }
 }

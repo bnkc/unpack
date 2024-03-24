@@ -100,7 +100,6 @@ pub struct SitePackages {
 
 #[derive(Deserialize, Debug, PartialEq, Clone)]
 
-// FIXME: the mapping should NOT BE PUBLIC
 pub struct InstalledPackages {
     mapping: HashMap<String, HashSet<String>>,
 }
@@ -116,12 +115,18 @@ impl InstalledPackages {
         self.mapping.insert(pkg_name, import_names);
     }
 
-    pub fn filter_used_packages(&self, used_imports: &HashSet<String>) -> HashSet<String> {
+    pub fn filter_used_pkgs(&self, used_imports: &HashSet<String>) -> HashSet<String> {
         self.mapping
             .iter()
             .filter(|(_pkg_name, import_names)| !import_names.is_disjoint(used_imports))
             .map(|(pkg_name, _)| pkg_name)
             .cloned()
             .collect()
+    }
+
+    // For `testing` purposes ONLY. Not intended to be public facing API.
+    #[cfg(test)]
+    pub fn _mapping(&self) -> &HashMap<String, HashSet<String>> {
+        &self.mapping
     }
 }
