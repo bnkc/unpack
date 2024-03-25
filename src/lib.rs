@@ -239,14 +239,14 @@ pub fn get_unused_dependencies(config: &Config) -> Result<Outcome> {
     let mut outcome = Outcome::default();
 
     let site_pkgs = get_site_package_dir(&config)?;
-    let installed_pkgs = get_installed_packages(site_pkgs)?;
+    let pkgs = get_installed_packages(site_pkgs)?;
 
     let pyproject_deps = get_dependencies_from_toml(&config.dep_spec_file)?;
     // println!("here is what is in the pyproject.toml {:?}", pyproject_deps);
 
     let imports = get_imports(&config)?;
 
-    let relevant_pkgs = installed_pkgs.find_all_packages(&pyproject_deps, &imports);
+    let relevant_pkgs = pkgs.find_all_packages(&pyproject_deps, &imports);
     println!("here is what is relevant {:#?}", relevant_pkgs);
 
     // let used_pkgs = installed_pkgs.filter_used_pkgs(&imports);

@@ -1,6 +1,6 @@
 use clap::Parser;
 
-use crate::defs::OutputKind;
+use crate::defs::{OutputKind, PackageState};
 use anyhow::{anyhow, Result};
 use std::path::Path;
 
@@ -32,6 +32,16 @@ pub struct Opts {
     )]
     #[arg(default_value = ".")]
     pub base_directory: PathBuf,
+
+    /// Select the dependency status to search for.
+    #[arg(
+        long,
+        short = 'd',
+        value_name("STATUS"),
+        default_value("Unused"),
+        value_enum
+    )]
+    pub dependency_status: PackageState,
 
     /// Include hidden directories and files in the search results (default:
     /// hidden files and directories are skipped). Files and directories are

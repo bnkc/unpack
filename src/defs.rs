@@ -1,6 +1,5 @@
 use crate::exit_codes::ExitCode;
 
-use crate::cli::Config;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -38,14 +37,13 @@ impl Outcome {
     }
 
     fn group_unused_deps(&self) -> HashMap<Option<String>, Vec<&Dependency>> {
-        let mut deps_by_type: HashMap<Option<String>, Vec<&Dependency>> = HashMap::new();
+        let mut res: HashMap<Option<String>, Vec<&Dependency>> = HashMap::new();
         for dep in &self.unused_deps {
-            deps_by_type
-                .entry(dep.type_.clone())
+            res.entry(dep.type_.clone())
                 .or_insert_with(Vec::new)
                 .push(dep);
         }
-        deps_by_type
+        res
     }
 
     pub fn print_human(&self, mut stdout: impl Write) -> Result<ExitCode> {
@@ -94,17 +92,22 @@ pub struct SitePackages {
     pub paths: Vec<PathBuf>,
     pub venv: Option<String>,
 }
-// const DEFAULT_PKGS: [&str; 5] = ["pip", "setuptools", "wheel", "python", "python_version"];
 
-#[derive(Debug, PartialEq, Clone)]
-enum PackageState {
-    //Package is installed, imported, and listed in pyproject.toml
+#[derive(clap::ValueEnum, Debug, PartialEq, Clone)]
+pub enum PackageState {
+    /// The dependency is installed, actively used in the project, and correctly listed in pyproject.toml.
+    /// This state indicates a fully integrated and properly managed dependency.
     Verified,
-    //Package is installed, listed in pyproject.toml, but not imported
+    /// The dependency is installed and listed in pyproject.toml but is not actively used in the project.
+    /// Ideal for identifying and possibly removing unnecessary dependencies to clean up the project.
     Unused,
-    //Package is installed, imported, but not listed in pyproject.toml
+    /// The dependency is installed and actively used in the project but is missing from pyproject.toml.
+    /// Highlights dependencies that are implicitly used but not formally declared, which may lead to
+    /// inconsistencies or issues in dependency management and deployment.
     Untracked,
-    //Package imported, listed in pyproject.toml, but not installed
+    /// The dependency is used in the project and listed in pyproject.toml but is not installed in the
+    /// local environment. Useful for identifying missing installations that are expected by the project,
+    /// potentially leading to runtime errors.
     Uninstalled,
 }
 
