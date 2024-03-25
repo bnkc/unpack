@@ -1,5 +1,6 @@
 use crate::exit_codes::ExitCode;
 
+use crate::cli::Config;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -93,36 +94,150 @@ pub struct SitePackages {
     pub paths: Vec<PathBuf>,
     pub venv: Option<String>,
 }
+// const DEFAULT_PKGS: [&str; 5] = ["pip", "setuptools", "wheel", "python", "python_version"];
 
-#[derive(Deserialize, Debug, PartialEq, Clone)]
-
-pub struct InstalledPackages {
-    mapping: HashMap<String, HashSet<String>>,
+#[derive(Debug, PartialEq, Clone)]
+enum PackageState {
+    //Package is installed, imported, and listed in pyproject.toml
+    Verified,
+    //Package is installed, listed in pyproject.toml, but not imported
+    Unused,
+    //Package is installed, imported, but not listed in pyproject.toml
+    Untracked,
+    //Package imported, listed in pyproject.toml, but not installed
+    Uninstalled,
 }
 
-impl InstalledPackages {
-    pub fn new() -> Self {
-        InstalledPackages {
-            mapping: HashMap::new(),
-        }
-    }
+#[derive(Debug, PartialEq, Clone)]
+pub struct PackageInfo {
+    name: String,
+    state: PackageState,
+    dependency: Option<Dependency>,
+}
+
+/// Represents the set of packages installed and the `potential` imports or modules they provide.
+#[derive(Deserialize, Debug, PartialEq, Clone, Default)]
+pub struct Packages {
+    manifest: HashMap<String, HashSet<String>>,
+}
+
+impl Packages {
     pub fn add_pkg(&mut self, pkg_name: String, import_names: HashSet<String>) {
         let pkg_name = pkg_name.replace("_", "-");
-        self.mapping.insert(pkg_name, import_names);
+        self.manifest.insert(pkg_name, import_names);
     }
 
-    pub fn filter_used_pkgs(&self, used_imports: &HashSet<String>) -> HashSet<String> {
-        self.mapping
-            .iter()
-            .filter(|(_pkg_name, import_names)| !import_names.is_disjoint(used_imports))
-            .map(|(pkg_name, _)| pkg_name)
-            .cloned()
-            .collect()
+    pub fn find_packages_by_state(
+        &self,
+        pyproject_deps: &HashSet<Dependency>,
+        imports: &HashSet<String>,
+        state: PackageState,
+    ) -> Vec<PackageInfo> {
+        match state {
+            PackageState::Verified => self.find_verified(pyproject_deps, imports),
+            PackageState::Unused => self.find_unused(pyproject_deps, imports),
+            PackageState::Untracked => self.find_untracked(pyproject_deps, imports),
+            PackageState::Uninstalled => self.find_uninstalled(pyproject_deps, imports),
+        }
+    }
+
+    pub fn find_all_packages(
+        &self,
+        pyproject_deps: &HashSet<Dependency>,
+        imports: &HashSet<String>,
+    ) -> Vec<PackageInfo> {
+        let mut all_packages = Vec::new();
+        all_packages.extend(self.find_verified(pyproject_deps, imports));
+        all_packages.extend(self.find_unused(pyproject_deps, imports));
+        all_packages.extend(self.find_untracked(pyproject_deps, imports));
+        all_packages.extend(self.find_uninstalled(pyproject_deps, imports));
+        all_packages
+    }
+
+    fn find_verified(
+        &self,
+        pyproject_deps: &HashSet<Dependency>,
+        imports: &HashSet<String>,
+    ) -> Vec<PackageInfo> {
+        let mut verified_packages = Vec::new();
+        for dep in pyproject_deps {
+            if let Some(import_names) = self.manifest.get(&dep.name) {
+                if !import_names.is_disjoint(imports) {
+                    verified_packages.push(PackageInfo {
+                        name: dep.name.clone(),
+                        state: PackageState::Verified,
+                        dependency: Some(dep.clone()),
+                    });
+                }
+            }
+        }
+        verified_packages
+    }
+
+    fn find_unused(
+        &self,
+        pyproject_deps: &HashSet<Dependency>,
+        imports: &HashSet<String>,
+    ) -> Vec<PackageInfo> {
+        let mut unused_packages = Vec::new();
+        for dep in pyproject_deps {
+            if let Some(import_names) = self.manifest.get(&dep.name) {
+                if import_names.is_disjoint(imports) {
+                    unused_packages.push(PackageInfo {
+                        name: dep.name.clone(),
+                        state: PackageState::Unused,
+                        dependency: Some(dep.clone()),
+                    });
+                }
+            }
+        }
+        unused_packages
+    }
+
+    fn find_untracked(
+        &self,
+        pyproject_deps: &HashSet<Dependency>,
+        imports: &HashSet<String>,
+    ) -> Vec<PackageInfo> {
+        let deps_names: HashSet<String> =
+            pyproject_deps.iter().map(|dep| dep.name.clone()).collect();
+        let mut untracked_packages = Vec::new();
+
+        for (pkg_name, import_names) in &self.manifest {
+            if !import_names.is_disjoint(imports) && !deps_names.contains(pkg_name) {
+                untracked_packages.push(PackageInfo {
+                    name: pkg_name.clone(),
+                    state: PackageState::Untracked,
+                    dependency: None,
+                });
+            }
+        }
+        untracked_packages
+    }
+
+    fn find_uninstalled(
+        &self,
+        pyproject_deps: &HashSet<Dependency>,
+        imports: &HashSet<String>,
+    ) -> Vec<PackageInfo> {
+        let mut uninstalled_packages = Vec::new();
+        for dep in pyproject_deps {
+            if !self.manifest.contains_key(&dep.name)
+                && imports.contains(&dep.name.replace("-", "_"))
+            {
+                uninstalled_packages.push(PackageInfo {
+                    name: dep.name.clone(),
+                    state: PackageState::Uninstalled,
+                    dependency: Some(dep.clone()),
+                });
+            }
+        }
+        uninstalled_packages
     }
 
     // For `testing` purposes ONLY. Not intended to be public facing API.
     #[cfg(test)]
     pub fn _mapping(&self) -> &HashMap<String, HashSet<String>> {
-        &self.mapping
+        &self.manifest
     }
 }

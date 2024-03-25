@@ -14,7 +14,7 @@ use std::process::Command;
 use std::str;
 
 use crate::cli::*;
-use crate::defs::{Dependency, InstalledPackages, Outcome, SitePackages};
+use crate::defs::{Dependency, Outcome, Packages, SitePackages};
 use crate::exit_codes::*;
 
 use anyhow::{bail, Context, Result};
@@ -25,8 +25,6 @@ use rustpython_ast::Visitor;
 use rustpython_parser::{ast, parse, Mode};
 use toml::Value;
 use walkdir::WalkDir;
-
-const DEFAULT_PKGS: [&str; 5] = ["pip", "setuptools", "wheel", "python", "python_version"];
 
 /// Print an error message to stderr
 #[inline]
@@ -67,7 +65,7 @@ impl Visitor for DependencyCollector {
     }
 }
 
-pub fn get_used_imports(config: &Config) -> Result<HashSet<String>> {
+pub fn get_imports(config: &Config) -> Result<HashSet<String>> {
     WalkDir::new(&config.base_directory)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -201,8 +199,8 @@ pub fn get_site_package_dir(config: &Config) -> Result<SitePackages> {
 }
 
 /// Given a `SitePackages` struct, we will collect all the installed packages on the system
-pub fn get_installed_packages(site_pkgs: SitePackages) -> Result<InstalledPackages> {
-    let mut pkgs = InstalledPackages::new();
+pub fn get_installed_packages(site_pkgs: SitePackages) -> Result<Packages> {
+    let mut pkgs = Packages::default();
 
     for path in site_pkgs.paths {
         let glob_pattern = format!("{}/{}-info", path.display(), "*");
@@ -240,20 +238,26 @@ pub fn get_installed_packages(site_pkgs: SitePackages) -> Result<InstalledPackag
 pub fn get_unused_dependencies(config: &Config) -> Result<Outcome> {
     let mut outcome = Outcome::default();
 
-    let pyproject_deps = get_dependencies_from_toml(&config.dep_spec_file)?;
-
     let site_pkgs = get_site_package_dir(&config)?;
-
     let installed_pkgs = get_installed_packages(site_pkgs)?;
 
-    let used_imports = get_used_imports(&config)?;
+    let pyproject_deps = get_dependencies_from_toml(&config.dep_spec_file)?;
+    // println!("here is what is in the pyproject.toml {:?}", pyproject_deps);
 
-    let used_pkgs = installed_pkgs.filter_used_pkgs(&used_imports);
+    let imports = get_imports(&config)?;
 
-    outcome.unused_deps = pyproject_deps
-        .into_iter()
-        .filter(|dep| !used_pkgs.contains(&dep.name) && !DEFAULT_PKGS.contains(&dep.name.as_str()))
-        .collect();
+    let relevant_pkgs = installed_pkgs.find_all_packages(&pyproject_deps, &imports);
+    println!("here is what is relevant {:#?}", relevant_pkgs);
+
+    // let used_pkgs = installed_pkgs.filter_used_pkgs(&imports);
+
+    // THIS IS WRONG. IF THE DEP IS NOT INSTALLED IT'S NOT A "UNUSED DEP"
+    // outcome.unused_deps = pyproject_deps
+    //     .into_iter()
+    //     .filter(|dep| !used_pkgs.contains(&dep.name) && !DEFAULT_PKGS.contains(&dep.name.as_str()))
+    //     .collect();
+
+    // println!("here is what is unused {:?}", outcome.unused_deps);
 
     outcome.success = outcome.unused_deps.is_empty();
 
@@ -345,7 +349,7 @@ mod tests {
     #[bench]
     fn bench_get_used_imports(b: &mut Bencher) {
         let te = TestEnv::new(&["dir1", "dir2"], Some(&["file1.py"]));
-        b.iter(|| get_used_imports(&te.config));
+        b.iter(|| get_imports(&te.config));
     }
 
     #[bench]
@@ -426,7 +430,7 @@ mod tests {
             Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
         );
 
-        let used_imports = get_used_imports(&te.config);
+        let used_imports = get_imports(&te.config);
         assert!(used_imports.is_ok());
 
         let used_imports = used_imports.unwrap();
@@ -436,7 +440,7 @@ mod tests {
         let mut file = File::create(file_path).unwrap();
         file.write_all(r#"import pandas as pd"#.as_bytes()).unwrap();
 
-        let used_imports = get_used_imports(&te.config);
+        let used_imports = get_imports(&te.config);
         assert!(used_imports.is_ok());
 
         let used_imports = used_imports.unwrap();
