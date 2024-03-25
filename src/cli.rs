@@ -38,7 +38,7 @@ pub struct Opts {
         long,
         short = 'd',
         value_name("STATUS"),
-        default_value("Unused"),
+        default_value("unused"),
         value_enum
     )]
     pub dependency_status: PackageState,
@@ -80,6 +80,10 @@ pub struct Config {
     /// The path to the directory to search for Python files.
     pub base_directory: PathBuf,
 
+    /// The dependency status to search for.
+    /// Ex: `Unused`, `Untracked`, `Used`, `Uninstalled`
+    pub package_state: PackageState,
+
     /// The path to the dependency specification file.
     /// Ex: `requirements.txt` or `pyproject.toml`
     pub dep_spec_file: PathBuf,
@@ -107,6 +111,7 @@ impl Config {
             ignore_hidden,
             env: Env::Dev,
             output,
+            package_state: opts.dependency_status,
         })
     }
 }
