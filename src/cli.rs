@@ -1,6 +1,6 @@
 use clap::Parser;
 
-use crate::defs::OutputKind;
+use crate::defs::{OutputKind, PackageState};
 use anyhow::{anyhow, Result};
 use std::path::Path;
 
@@ -32,6 +32,16 @@ pub struct Opts {
     )]
     #[arg(default_value = ".")]
     pub base_directory: PathBuf,
+
+    /// Select the dependency status to search for.
+    #[arg(
+        long,
+        short = 'd',
+        value_name("STATUS"),
+        default_value("unused"),
+        value_enum
+    )]
+    pub dependency_status: PackageState,
 
     /// Include hidden directories and files in the search results (default:
     /// hidden files and directories are skipped). Files and directories are
@@ -70,6 +80,10 @@ pub struct Config {
     /// The path to the directory to search for Python files.
     pub base_directory: PathBuf,
 
+    /// The dependency status to search for.
+    /// Ex: `Unused`, `Untracked`, `Used`, `Uninstalled`
+    pub package_state: PackageState,
+
     /// The path to the dependency specification file.
     /// Ex: `requirements.txt` or `pyproject.toml`
     pub dep_spec_file: PathBuf,
@@ -97,6 +111,7 @@ impl Config {
             ignore_hidden,
             env: Env::Dev,
             output,
+            package_state: opts.dependency_status,
         })
     }
 }
