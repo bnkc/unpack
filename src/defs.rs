@@ -1,11 +1,18 @@
+extern crate bytesize;
+
 use crate::exit_codes::ExitCode;
 use crate::Config;
 use anyhow::Result;
+use bytesize::ByteSize;
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::collections::{HashMap, HashSet};
+
 use std::io::Write;
 use std::path::PathBuf;
+use std::vec;
+use tabled::settings::Panel;
 use tabled::{settings::Style, Table, Tabled};
 
 #[derive(Deserialize, Debug, PartialEq, Clone)]
@@ -40,140 +47,209 @@ pub enum PackageState {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash)]
-pub struct PackageInfo {
-    name: String,
-    state: PackageState,
-    dependency: Option<Dependency>,
+pub struct PackageMetadata {
+    pub id: String,
+    pub size: u64,
+    pub aliases: BTreeSet<String>,
 }
 
-/// Represents the set of packages installed and the `potential` imports or modules they provide.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash)]
+pub struct PackageBuilder {
+    dependency: Option<Dependency>,
+    metadata: PackageMetadata,
+    state: PackageState,
+}
+
 #[derive(Deserialize, Debug, PartialEq, Clone, Default)]
 pub struct Packages {
-    manifest: HashMap<String, HashSet<String>>,
+    manifest: HashSet<PackageMetadata>,
 }
 
 impl Packages {
-    pub fn add_pkg(&mut self, pkg_name: String, import_names: HashSet<String>) {
-        let pkg_name = pkg_name.replace("_", "-");
-        self.manifest.insert(pkg_name, import_names);
+    pub fn add_pkg(&mut self, metadata: PackageMetadata) {
+        let name = metadata.id.replace("_", "-");
+        self.manifest.insert(PackageMetadata {
+            id: name,
+            size: metadata.size,
+            aliases: metadata.aliases,
+        });
     }
 
-    pub fn find_packages_by_state(
+    pub fn get_packages_by_state(
         &self,
         pyproject_deps: &HashSet<Dependency>,
-        imports: &HashSet<String>,
+        imports: &BTreeSet<String>,
         state: &PackageState,
-    ) -> HashSet<PackageInfo> {
+    ) -> HashSet<PackageBuilder> {
         match state {
-            PackageState::Used => self.find_used(pyproject_deps, imports),
-            PackageState::Unused => self.find_unused(pyproject_deps, imports),
-            PackageState::Untracked => self.find_untracked(pyproject_deps, imports),
-            PackageState::Uninstalled => self.find_uninstalled(pyproject_deps, imports),
+            PackageState::Used => self.get_used(pyproject_deps, imports),
+            PackageState::Unused => self.get_unused(pyproject_deps, imports),
+            PackageState::Untracked => self.get_untracked(pyproject_deps, imports),
+            PackageState::Uninstalled => self.get_uninstalled(pyproject_deps, imports),
         }
     }
 
-    // Come back to this
-    fn find_all_packages(
+    /// Returns all packages in the manifest that are in the given state.
+    pub fn get_all_packages(
         &self,
         pyproject_deps: &HashSet<Dependency>,
-        imports: &HashSet<String>,
-    ) -> HashSet<PackageInfo> {
+        imports: &BTreeSet<String>,
+    ) -> HashSet<PackageBuilder> {
         let mut all_packages = HashSet::new();
-        all_packages.extend(self.find_used(pyproject_deps, imports));
-        all_packages.extend(self.find_unused(pyproject_deps, imports));
-        all_packages.extend(self.find_untracked(pyproject_deps, imports));
-        all_packages.extend(self.find_uninstalled(pyproject_deps, imports));
+        all_packages.extend(self.get_used(pyproject_deps, imports));
+        all_packages.extend(self.get_unused(pyproject_deps, imports));
+        all_packages.extend(self.get_untracked(pyproject_deps, imports));
+        all_packages.extend(self.get_uninstalled(pyproject_deps, imports));
         all_packages
     }
 
-    fn find_used(
+    /// Retrieves a set of `PackageBuilder` instances representing the "used" dependencies.
+    ///
+    /// A "used" dependency is defined as a dependency listed in `pyproject_deps`
+    /// that has at least one alias present in the `imports` set, indicating it is actively
+    /// used in the project.
+    ///
+    /// # Arguments
+    ///
+    /// * `pyproject_deps` - A set of dependencies as defined in the project's pyproject.toml.
+    /// * `imports` - A set of import statements or module names actually used in the project.
+    ///
+    /// # Returns
+    ///
+    /// A HashSet of `PackageBuilder` instances, each representing a used dependency.
+    fn get_used(
         &self,
         pyproject_deps: &HashSet<Dependency>,
-        imports: &HashSet<String>,
-    ) -> HashSet<PackageInfo> {
-        let mut verified_packages = HashSet::new();
-        for dep in pyproject_deps {
-            // Check if a dependency is existent in the manifest (local packages)
-            if let Some(import_names) = self.manifest.get(&dep.id) {
-                // Check if the dependency is used in the project
-                if !import_names.is_disjoint(imports) {
-                    verified_packages.insert(PackageInfo {
-                        name: dep.id.clone(),
+        imports: &BTreeSet<String>,
+    ) -> HashSet<PackageBuilder> {
+        pyproject_deps
+            .iter()
+            .filter_map(|dep| {
+                // Attempt to find a matching package in the manifest by `ID` that is also used in imports.
+                self.manifest
+                    .iter()
+                    .find(|pkg| pkg.id == dep.id && !pkg.aliases.is_disjoint(imports))
+                    // If a match is found, construct a `PackageBuilder` indicating its usage.
+                    .map(|pkg| PackageBuilder {
+                        metadata: pkg.clone(),
                         state: PackageState::Used,
                         dependency: Some(dep.clone()),
-                    });
-                }
-            }
-        }
-        verified_packages
+                    })
+            })
+            .collect()
     }
 
-    fn find_unused(
+    /// Retrieves a set of `PackageBuilder` instances representing the "unused" dependencies.
+    ///
+    /// An "unused" dependency is defined as a dependency listed in `pyproject_deps` that has no
+    /// aliases present in the `imports` set, indicating it is not actively used in the project.
+    ///
+    /// # Arguments
+    ///
+    /// * `pyproject_deps` - A set of dependencies as defined in the project's pyproject.toml.
+    /// * `imports` - A set of import statements or module names actually used in the project.
+    ///
+    /// # Returns
+    ///
+    /// A HashSet of `PackageBuilder` instances, each representing an unused dependency.
+    fn get_unused(
         &self,
         pyproject_deps: &HashSet<Dependency>,
-        imports: &HashSet<String>,
-    ) -> HashSet<PackageInfo> {
-        let mut unused_packages = HashSet::new();
-        for dep in pyproject_deps {
-            // Check if a dependency is existent in the manifest (local packages)
-            if let Some(import_names) = self.manifest.get(&dep.id) {
-                // Check if the dependency is not used in the project
-                if import_names.is_disjoint(imports) {
-                    unused_packages.insert(PackageInfo {
-                        name: dep.id.clone(),
+        imports: &BTreeSet<String>,
+    ) -> HashSet<PackageBuilder> {
+        pyproject_deps
+            .iter()
+            .filter_map(|dep| {
+                // Attempt to find a matching package in the manifest by `ID` that is not used in imports.
+                self.manifest
+                    .iter()
+                    .find(|pkg| pkg.id == dep.id && pkg.aliases.is_disjoint(imports))
+                    // If a match is found, construct a `PackageBuilder` indicating its unused status.
+                    .map(|pkg| PackageBuilder {
+                        metadata: pkg.clone(),
                         state: PackageState::Unused,
                         dependency: Some(dep.clone()),
-                    });
-                }
-            }
-        }
-        unused_packages
+                    })
+            })
+            .collect()
     }
 
-    fn find_untracked(
+    /// Retrieves a set of `PackageBuilder` instances representing the "untracked" dependencies.
+    ///
+    /// An "untracked" dependency is defined as a dependency that is used in the project but is not listed
+    /// in the `pyproject_deps` set, indicating it is not formally declared in the project's pyproject.toml.
+    ///
+    /// # Arguments
+    ///
+    /// * `pyproject_deps` - A set of dependencies as defined in the project's pyproject.toml.
+    /// * `imports` - A set of import statements or module names actually used in the project.
+    ///
+    /// # Returns
+    ///
+    /// A HashSet of `PackageBuilder` instances, each representing an untracked dependency.
+    fn get_untracked(
         &self,
         pyproject_deps: &HashSet<Dependency>,
-        imports: &HashSet<String>,
-    ) -> HashSet<PackageInfo> {
-        let deps_names: HashSet<String> = pyproject_deps.iter().map(|dep| dep.id.clone()).collect();
+        imports: &BTreeSet<String>,
+    ) -> HashSet<PackageBuilder> {
+        let dep_ids: HashSet<String> = pyproject_deps.iter().map(|dep| dep.id.clone()).collect();
 
-        let mut untracked_packages = HashSet::new();
-        // Check if any of the imports are not in the manifest (local packages)
-        for (pkg_name, import_names) in &self.manifest {
-            //  Check if the package is not listed in the pyproject.toml
-            if !import_names.is_disjoint(imports) && !deps_names.contains(pkg_name) {
-                untracked_packages.insert(PackageInfo {
-                    name: pkg_name.clone(),
-                    state: PackageState::Untracked,
-                    dependency: None,
-                });
-            }
-        }
-        untracked_packages
+        imports
+            .iter()
+            .filter_map(|import| {
+                // Attempt to find a matching package in the manifest by `ID` that is not listed in `pyproject_deps`.
+                self.manifest
+                    .iter()
+                    .find(|pkg| pkg.aliases.contains(import) && !dep_ids.contains(&pkg.id))
+                    // If a match is found, construct a `PackageBuilder` indicating its untracked status.
+                    .map(|pkg| PackageBuilder {
+                        metadata: pkg.clone(),
+                        state: PackageState::Untracked,
+                        dependency: None,
+                    })
+            })
+            .collect()
     }
 
-    fn find_uninstalled(
+    /// Retrieves a set of `PackageBuilder` instances representing the "uninstalled" dependencies.
+    ///
+    /// An "uninstalled" dependency is defined as a dependency listed in `pyproject_deps` that is not
+    /// present in the manifest and is used in the project, indicating it is not installed in the local
+    /// environment.
+    ///
+    /// # Arguments
+    ///
+    /// * `pyproject_deps` - A set of dependencies as defined in the project's pyproject.toml.
+    /// * `imports` - A set of import statements or module names actually used in the project.
+    ///
+    /// # Returns
+    ///
+    /// A HashSet of `PackageBuilder` instances, each representing an uninstalled dependency.
+    fn get_uninstalled(
         &self,
         pyproject_deps: &HashSet<Dependency>,
-        imports: &HashSet<String>,
-    ) -> HashSet<PackageInfo> {
-        let mut uninstalled_packages = HashSet::new();
-        for dep in pyproject_deps {
-            // Check if a dependency is existent in the manifest (local packages) and is not installed
-            if !self.manifest.contains_key(&dep.id) && imports.contains(&dep.id.replace("-", "_")) {
-                uninstalled_packages.insert(PackageInfo {
-                    name: dep.id.clone(),
-                    state: PackageState::Uninstalled,
-                    dependency: Some(dep.clone()),
-                });
-            }
-        }
-        uninstalled_packages
+        imports: &BTreeSet<String>,
+    ) -> HashSet<PackageBuilder> {
+        pyproject_deps
+            .iter()
+            .filter_map(|dep| {
+                // Attempt to find a matching package in the manifest by `ID` that is not installed.
+                self.manifest
+                    .iter()
+                    .find(|pkg| pkg.id == dep.id && !imports.contains(&pkg.id.replace("-", "_")))
+                    // If a match is found, construct a `PackageBuilder` indicating its uninstalled status.
+                    .map(|pkg| PackageBuilder {
+                        metadata: pkg.clone(),
+                        state: PackageState::Uninstalled,
+                        dependency: Some(dep.clone()),
+                    })
+            })
+            .collect()
     }
 
     // For `testing` purposes ONLY. Not intended to be public facing API.
     #[cfg(test)]
-    pub fn _mapping(&self) -> &HashMap<String, HashSet<String>> {
+    pub fn _mapping(&self) -> &HashSet<PackageMetadata> {
         &self.manifest
     }
 }
@@ -189,96 +265,15 @@ pub enum OutputKind {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
 pub struct Outcome {
     pub success: bool,
-    pub packages: HashSet<PackageInfo>,
+    pub packages: HashSet<PackageBuilder>,
     pub note: Option<String>,
 }
 
-// impl Outcome {
-//     pub fn print_report(&self, config: &Config, stdout: impl Write) -> Result<ExitCode> {
-//         match config.output {
-//             OutputKind::Human => self.pretty_print(stdout, config),
-//             OutputKind::Json => self.json_print(stdout),
-//         }
-//     }
-
-//     fn json_print(&self, mut stdout: impl Write) -> Result<ExitCode> {
-//         let json = serde_json::to_string(self).expect("Failed to serialize to JSON.");
-//         writeln!(stdout, "{}", json)?;
-//         stdout.flush()?;
-//         Ok(ExitCode::Success)
-//     }
-
-//     // Handles the pretty print for Human-readable output
-//     fn pretty_print(&self, mut stdout: impl Write, config: &Config) -> Result<ExitCode> {
-//         if self.success {
-//             writeln!(stdout, "All dependencies are correctly managed!")?;
-//         } else {
-//             writeln!(stdout, "\n{:?} Dependencies", config.package_state)?;
-
-//             match config.package_state {
-//                 PackageState::Untracked => self.print_untracked(&mut stdout)?,
-//                 _ => self.print_other(&mut stdout)?,
-//             }
-
-//             if let Some(note) = &self.note {
-//                 writeln!(stdout, "\nNote: {}", note)?;
-//             }
-//         }
-
-//         stdout.flush()?;
-//         Ok(ExitCode::Success)
-//     }
-
-//     // Specific printing logic for Untracked dependencies
-//     fn print_untracked(&self, stdout: &mut impl Write) -> Result<()> {
-//         for (i, dep) in self.packages.iter().enumerate() {
-//             let is_last = i == self.packages.len() - 1;
-//             let joint = if is_last { '└' } else { '├' };
-//             writeln!(stdout, "{}─── {}", joint, dep.name)?;
-//         }
-//         Ok(())
-//     }
-
-//     // General printing logic for other dependencies (Used, Unused, Uninstalled)
-//     fn print_other(&self, stdout: &mut impl Write) -> Result<()> {
-//         let grouped_deps = self.group_by_category();
-
-//         for (type_, deps) in grouped_deps {
-//             let type_label = type_.as_ref().map_or("General", String::as_str);
-//             writeln!(stdout, "\n[{}]", type_label)?;
-
-//             for (i, dep) in deps.iter().enumerate() {
-//                 let is_last = i == deps.len() - 1;
-//                 let joint = if is_last { '└' } else { '├' };
-//                 match dep.version {
-//                     Some(ref version) => {
-//                         writeln!(stdout, "{}─── {} = \"{}\"", joint, dep.id, version)?
-//                     }
-//                     None => writeln!(stdout, "{}─── {}", joint, dep.id)?,
-//                 }
-//             }
-//         }
-
-//         Ok(())
-//     }
-
-//     fn group_by_category(&self) -> HashMap<Option<String>, Vec<&Dependency>> {
-//         let mut res: HashMap<Option<String>, Vec<&Dependency>> = HashMap::new();
-//         for p in &self.packages {
-//             let category = p.dependency.as_ref().and_then(|dep| dep.category.clone());
-//             res.entry(category)
-//                 .or_insert_with(Vec::new)
-//                 .push(p.dependency.as_ref().unwrap());
-//         }
-//         res
-//     }
-// }
-
 #[derive(Tabled)]
-struct DependencyRecord {
+struct Record {
     name: String,
     version: String,
-    category: String,
+    size: String,
 }
 
 impl Outcome {
@@ -294,11 +289,11 @@ impl Outcome {
         if self.success {
             writeln!(stdout, "All dependencies are correctly managed!")?;
         } else {
-            writeln!(stdout, "{:?} Dependencies", config.package_state)?;
+            writeln!(stdout, "\n{:?} Dependencies", config.package_state)?;
 
             match config.package_state {
                 PackageState::Untracked => self.print_untracked(&mut stdout)?,
-                _ => self.print_tracked(&mut stdout)?,
+                _ => self.print(&mut stdout)?,
             }
 
             if let Some(note) = &self.note {
@@ -311,13 +306,13 @@ impl Outcome {
     }
 
     fn print_untracked(&self, stdout: &mut impl Write) -> Result<()> {
-        let records: Vec<DependencyRecord> = self
+        let records: Vec<Record> = self
             .packages
             .iter()
-            .map(|pkg_info| DependencyRecord {
-                name: pkg_info.name.clone(),
+            .map(|pkg_info| Record {
+                name: pkg_info.metadata.id.clone(),
                 version: String::from("N/A"),
-                category: String::from("N/A"),
+                size: ByteSize::b(pkg_info.metadata.size).to_string_as(true),
             })
             .collect();
 
@@ -326,29 +321,30 @@ impl Outcome {
         Ok(())
     }
 
-    fn print_tracked(&self, stdout: &mut impl Write) -> Result<(), std::io::Error> {
-        // Group dependencies by category
-        let mut category_groups: HashMap<String, Vec<DependencyRecord>> = HashMap::new();
+    fn print(&self, stdout: &mut impl Write) -> Result<(), std::io::Error> {
+        let mut category_groups: HashMap<String, Vec<Record>> = HashMap::new();
         for pkg_info in &self.packages {
             if let Some(ref dep) = pkg_info.dependency {
                 category_groups
                     .entry(dep.category.clone().unwrap_or_else(|| "N/A".to_string()))
                     .or_default()
-                    .push(DependencyRecord {
+                    .push(Record {
                         name: dep.id.clone(),
                         version: dep.version.clone().unwrap_or_else(|| "N/A".to_string()),
-                        category: dep.category.clone().unwrap_or_else(|| "N/A".to_string()),
+                        size: ByteSize::b(pkg_info.metadata.size).to_string_as(true),
                     });
             }
         }
 
-        // Print tables for each category
         for (category, records) in category_groups {
-            writeln!(stdout, "\n[{}]\n", category)?;
-            let table = Table::new(&records)
-                .with(Style::ascii_rounded())
-                .to_string();
-            writeln!(stdout, "{}", table)?;
+            let mut table = Table::new(&records);
+
+            table
+                .with(Panel::header(category))
+                .with(Style::ascii())
+                .with(Panel::footer("End of table"));
+
+            writeln!(stdout, "\n{}", table)?;
         }
 
         Ok(())
