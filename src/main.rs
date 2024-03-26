@@ -3,9 +3,9 @@ use clap::Parser;
 use std::env;
 
 use pip_udeps::{
+    analyze,
     cli::{Config, Opts},
     exit_codes::ExitCode,
-    get_unused_dependencies,
 };
 
 fn main() {
@@ -25,8 +25,8 @@ fn run() -> Result<ExitCode> {
     let opts = Opts::parse();
     let config = Config::build(opts)?;
     set_working_dir(&config)?;
-    let outcome = get_unused_dependencies(&config)?;
-    outcome.print_result(&config, std::io::stdout())
+    let analyze = analyze(&config)?;
+    analyze.print_report(&config, std::io::stdout())
 }
 
 fn set_working_dir(config: &Config) -> Result<()> {

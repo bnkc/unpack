@@ -235,7 +235,7 @@ pub fn get_installed_packages(site_pkgs: SitePackages) -> Result<Packages> {
 }
 
 // Can't read bash or bat scripts. WIll need to return to this issue
-pub fn get_unused_dependencies(config: &Config) -> Result<Outcome> {
+pub fn analyze(config: &Config) -> Result<Outcome> {
     let mut outcome = Outcome::default();
 
     let site_pkgs = get_site_package_dir(&config)?;
@@ -267,7 +267,7 @@ pub fn get_unused_dependencies(config: &Config) -> Result<Outcome> {
     if !outcome.success {
         let mut note = "".to_owned();
         note += "Note: There might be false-positives.\n";
-        note += "      For example, `pip-udeps` cannot detect usage of packages that not imported under `[tool.poetry.*]`.\n";
+        note += "      For example, `pip-udeps` cannot detect usage of packages that are not imported under `[tool.poetry.*]`.\n";
         outcome.note = Some(note);
     }
 
