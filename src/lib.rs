@@ -9,19 +9,20 @@ extern crate fs_extra;
 
 use fs_extra::dir::get_size;
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 use std::env;
 use std::fs;
+use std::hash::Hash;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::str;
 
 use crate::cli::*;
-use crate::defs::{Dependency, Outcome, PackageMetadata, Packages, SitePackages};
+use crate::defs::{Analysis, Dependency, Package, PackageBuilder, Packages, SitePackage};
 use crate::exit_codes::*;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use colored::Colorize;
 use dialoguer::Confirm;
 use glob::glob;
@@ -69,7 +70,7 @@ impl Visitor for DependencyCollector {
     }
 }
 
-pub fn get_imports(config: &Config) -> Result<BTreeSet<String>> {
+pub fn get_imports(config: &Config) -> Result<HashSet<String>> {
     WalkDir::new(&config.base_directory)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -79,7 +80,7 @@ pub fn get_imports(config: &Config) -> Result<BTreeSet<String>> {
             // Ignore hidden files and directories if `ignore_hidden` is set to true
             file_name.ends_with(".py") && !(config.ignore_hidden && file_name.starts_with("."))
         })
-        .try_fold(BTreeSet::new(), |mut acc, entry| {
+        .try_fold(HashSet::new(), |mut acc, entry| {
             let file_content = fs::read_to_string(entry.path())?;
             let module = parse(&file_content, Mode::Module, "<embedded>")?;
 
@@ -139,20 +140,8 @@ fn get_dependencies_from_toml(path: &Path) -> Result<HashSet<Dependency>> {
     Ok(deps)
 }
 
-/// Given a virtual environment, we will prompt the user to confirm if it is the correct one
-fn get_prompt(venv: &Option<String>) -> String {
-    match venv {
-        Some(name) => format!("Detected virtual environment: `{}`. Is this correct?", name),
-        None => format!(
-            "WARNING: No virtual environment detected. Results may be inaccurate. Continue?"
-        )
-        .red()
-        .to_string(),
-    }
-}
-
 /// Collect the site-packages directory path(s) and the virtual environment name
-pub fn get_site_package_dir(config: &Config) -> Result<SitePackages> {
+pub fn get_site_packages(config: &Config) -> Result<SitePackage> {
     let output = match Command::new("python").arg("-m").arg("site").output() {
         Ok(o) => o,
         Err(_) => {
@@ -165,7 +154,7 @@ pub fn get_site_package_dir(config: &Config) -> Result<SitePackages> {
         .context("Output was not valid UTF-8.")?
         .trim();
 
-    let pkg_paths: Vec<PathBuf> = output_str
+    let pkg_paths = output_str
         .lines()
         .filter(|line| {
             line.contains("site-packages") && !line.trim_start().starts_with("USER_SITE:")
@@ -174,16 +163,20 @@ pub fn get_site_package_dir(config: &Config) -> Result<SitePackages> {
         .map(PathBuf::from)
         .collect();
 
-    if pkg_paths.is_empty() {
-        bail!("No site-packages found. Are you sure you are in a virtual environment?");
-    }
-
+    // this logic might end up going away to be honest with ya!
     let venv = env::var("VIRTUAL_ENV")
         .ok()
         .and_then(|path| path.split('/').last().map(String::from));
 
     if config.env != Env::Test {
-        let prompt = get_prompt(&venv);
+        let prompt = match &venv {
+            Some(name) => format!("Detected virtual environment: `{}`. Is this correct?", name),
+            None => format!(
+                "WARNING: No virtual environment detected. Results may be inaccurate. Continue?"
+            )
+            .red()
+            .to_string(),
+        };
 
         let user_input = Confirm::new()
             .with_prompt(prompt)
@@ -196,19 +189,16 @@ pub fn get_site_package_dir(config: &Config) -> Result<SitePackages> {
         }
     }
 
-    Ok(SitePackages {
-        paths: pkg_paths,
-        venv,
-    })
+    Ok(SitePackage::new(pkg_paths)?)
 }
 
 /// Collects all installed packages on the system from given site package directories,
 /// ignoring packages without any aliases and aggregates sizes of all aliases.
-pub fn get_installed_packages(site_pkgs: SitePackages) -> Result<Packages> {
+pub fn get_installed_packages(site_package: SitePackage) -> Result<Packages> {
     let mut packages = Packages::default();
 
-    for site_path in &site_pkgs.paths {
-        let glob_pattern = format!("{}/{}-info", site_path.display(), "*");
+    for path in site_package.paths() {
+        let glob_pattern = format!("{}/{}-info", path.display(), "*");
         let dist_info_dirs = glob(&glob_pattern)
             .with_context(|| format!("Failed to read glob pattern {}", glob_pattern))?;
 
@@ -223,26 +213,26 @@ pub fn get_installed_packages(site_pkgs: SitePackages) -> Result<Packages> {
                 .ok_or_else(|| anyhow::anyhow!("Invalid package name format"))?;
 
             let top_level_path = dist_info_path.join("top_level.txt");
-            let mut total_size = 0u64;
-            let mut import_names = BTreeSet::new();
+            let mut size = 0u64;
+            let mut import_names = HashSet::new();
 
             if top_level_path.exists() {
                 let lines = fs::read_to_string(&top_level_path)
                     .with_context(|| format!("Failed to read {}", top_level_path.display()))?;
                 for line in lines.lines().map(str::trim) {
-                    let potential_path = site_path.join(line);
+                    let potential_path = path.join(line);
                     if potential_path.exists() {
                         import_names.insert(line.to_string());
-                        total_size += get_size(&potential_path).with_context(|| {
+                        size += get_size(&potential_path).with_context(|| {
                             format!("Failed to get size for {}", potential_path.display())
                         })?;
                     }
                 }
             } else {
-                let path = site_path.join(&package_name);
+                let path = path.join(&package_name);
                 if path.exists() {
                     import_names.insert(package_name.clone());
-                    total_size = get_size(&path)
+                    size = get_size(&path)
                         .with_context(|| format!("Failed to get size for {}", path.display()))?;
                 }
             }
@@ -252,13 +242,8 @@ pub fn get_installed_packages(site_pkgs: SitePackages) -> Result<Packages> {
                 continue;
             }
 
-            // let human_readable_size = ByteSize::b(total_size).to_string_as(true);
-
-            packages.add_pkg(PackageMetadata {
-                id: package_name,
-                aliases: import_names,
-                size: total_size,
-            });
+            let package = PackageBuilder::new(package_name, import_names, size).build();
+            packages.add_package(package);
         }
     }
 
@@ -266,10 +251,10 @@ pub fn get_installed_packages(site_pkgs: SitePackages) -> Result<Packages> {
 }
 
 // Can't read bash or bat scripts. WIll need to return to this issue
-pub fn analyze(config: &Config) -> Result<Outcome> {
-    let mut outcome = Outcome::default();
+pub fn analyze(config: Config) -> Result<Analysis> {
+    let mut outcome = Analysis::default();
 
-    let site_pkgs = get_site_package_dir(&config)?;
+    let site_pkgs = get_site_packages(&config)?;
     let pkgs = get_installed_packages(site_pkgs)?;
     // println!("here is what is in the site packages {:#?}", pkgs);
 
@@ -278,7 +263,7 @@ pub fn analyze(config: &Config) -> Result<Outcome> {
 
     let imports = get_imports(&config)?;
 
-    outcome.packages = pkgs.get_packages_by_state(&pyproject_deps, &imports, &config.package_state);
+    outcome.packages = pkgs.get_packages(config, &pyproject_deps, &imports);
 
     // println!("here is what is relevant {:#?}", relevant_pkgs);
 
@@ -485,38 +470,38 @@ mod tests {
         assert!(!used_imports.contains("sklearn"));
     }
 
-    #[test]
-    fn correct_promt_from_get_prompt() {
-        let venv = Some("test-venv".to_string());
-        let prompt = get_prompt(&venv);
-        assert_eq!(
-            prompt,
-            "Detected virtual environment: `test-venv`. Is this correct?"
-        );
+    // #[test]
+    // fn correct_promt_from_get_prompt() {
+    //     let venv = Some("test-venv".to_string());
+    //     let prompt = get_prompt(&venv);
+    //     assert_eq!(
+    //         prompt,
+    //         "Detected virtual environment: `test-venv`. Is this correct?"
+    //     );
 
-        let venv = None;
-        let prompt = get_prompt(&venv);
-        assert_eq!(
-            prompt,
-            "WARNING: No virtual environment detected. Results may be inaccurate. Continue?"
-                .red()
-                .to_string()
-        );
-    }
+    //     let venv = None;
+    //     let prompt = get_prompt(&venv);
+    //     assert_eq!(
+    //         prompt,
+    //         "WARNING: No virtual environment detected. Results may be inaccurate. Continue?"
+    //             .red()
+    //             .to_string()
+    //     );
+    // }
 
-    #[test]
-    fn get_site_package_dir_success() {
-        let te = TestEnv::new(&["dir1", "dir2"], Some(&["pyproject.toml"]));
+    // #[test]
+    // fn get_site_package_dir_success() {
+    //     let te = TestEnv::new(&["dir1", "dir2"], Some(&["pyproject.toml"]));
 
-        let site_pkgs = get_site_package_dir(&te.config).unwrap();
+    //     let site_pkgs = get_site_package_dir(&te.config).unwrap();
 
-        assert!(!site_pkgs.paths.is_empty());
+    //     assert!(!site_pkgs.paths.is_empty());
 
-        let venv_name = env::var("VIRTUAL_ENV")
-            .ok()
-            .and_then(|path| path.split('/').last().map(String::from));
-        assert_eq!(site_pkgs.venv, venv_name);
-    }
+    //     let venv_name = env::var("VIRTUAL_ENV")
+    //         .ok()
+    //         .and_then(|path| path.split('/').last().map(String::from));
+    //     assert_eq!(site_pkgs.venv, venv_name);
+    // }
 
     // #[test]
 

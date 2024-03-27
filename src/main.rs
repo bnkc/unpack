@@ -25,8 +25,8 @@ fn run() -> Result<ExitCode> {
     let opts = Opts::parse();
     let config = Config::build(opts)?;
     set_working_dir(&config)?;
-    let analyze = analyze(&config)?;
-    analyze.print_report(&config, std::io::stdout())
+    let analysis = analyze(&config)?;
+    analysis.print_report(&config, std::io::stdout())
 }
 
 fn set_working_dir(config: &Config) -> Result<()> {

@@ -81,7 +81,7 @@ pub struct Config {
     pub base_directory: PathBuf,
 
     /// The dependency status to search for.
-    /// Ex: `Unused`, `Untracked`, `Used`, `Uninstalled`
+    /// Ex: `Unused`, `Untracked`, `Used`
     pub package_state: PackageState,
 
     /// The path to the dependency specification file.
