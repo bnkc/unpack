@@ -1,8 +1,8 @@
 #![feature(test)]
 extern crate test;
 
-pub mod builders;
 pub mod cli;
+pub mod defs;
 pub mod exit_codes;
 pub mod output;
 
@@ -19,25 +19,274 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::str;
 
-use crate::builders::{
-    Dependency, DependencyBuilder, Package, PackageBuilder, Packages, SitePackage,
-};
 use crate::cli::*;
+// use crate::defs::{Dependency, Package, PackageBuilder, Packages, SitePackage};
 use crate::exit_codes::*;
 
+extern crate bytesize;
+
+use crate::Config;
+use anyhow::{anyhow, bail};
+
+use exit_codes::ExitCode;
+
+use serde::{Deserialize, Serialize};
+
+use std::path::Component;
+
 use anyhow::{Context, Result};
-use colored::Colorize;
-use dialoguer::Confirm;
 use glob::glob;
 use rustpython_ast::Visitor;
 use rustpython_parser::{ast, parse, Mode};
 use toml::Value;
 use walkdir::WalkDir;
 
-/// Print an error message to stderr
-#[inline]
-fn print_error(msg: impl Into<String>) {
-    eprintln!("[pip-udeps error]: {}", msg.into());
+#[derive(Deserialize, Debug, PartialEq, Clone)]
+pub struct SitePackages {
+    paths: HashSet<PathBuf>,
+}
+
+impl SitePackages {
+    pub fn new(paths: HashSet<PathBuf>) -> Result<Self> {
+        let validated_paths: HashSet<PathBuf> =
+            paths.into_iter().filter(|path| path.exists()).collect();
+
+        if validated_paths.is_empty() {
+            bail!("No site-packages found. Are you sure you are in a virtual environment?");
+        }
+
+        Ok(SitePackages {
+            paths: validated_paths,
+        })
+    }
+    // Function to get the site package directory
+    /// This function executes the command `python -m site` to get the site package directory
+    /// It returns a Result containing a `SitePackage` struct or an error
+    pub fn get_site_packages() -> Result<Self> {
+        let output = Command::new("python")
+            .arg("-m")
+            .arg("site")
+            .output()
+            .context("Failed to execute `python -m site`. Are you sure Python is installed?")?;
+
+        let output_str = str::from_utf8(&output.stdout)
+            .context("Output was not valid UTF-8.")?
+            .trim();
+
+        // Extract the site package paths from the output
+        let pkg_paths = output_str
+            .lines()
+            .filter(|line| line.contains("site-packages"))
+            .map(|s| s.trim_matches(|c: char| c.is_whitespace() || c == '\'' || c == ','))
+            .map(PathBuf::from)
+            .collect();
+
+        // Create a new SitePackage struct with the extracted paths
+        SitePackages::new(pkg_paths)
+    }
+
+    pub fn paths(&self) -> &HashSet<PathBuf> {
+        &self.paths
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct Package {
+    id: String,
+    size: u64,
+    aliases: HashSet<String>,
+    dependency: Option<Dependency>, // Optionally linked Dependency
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct PackageBuilder {
+    id: String,
+    size: u64,
+    aliases: HashSet<String>,
+    dependency: Option<Dependency>, // Optionally linked Dependency
+}
+
+impl PackageBuilder {
+    pub fn new(id: String, aliases: HashSet<String>, size: u64) -> Self {
+        Self {
+            id,
+            size,
+            aliases,
+            dependency: None,
+        }
+    }
+
+    pub fn size(mut self, size: u64) -> Self {
+        self.size = size;
+        self
+    }
+
+    pub fn aliases(mut self, aliases: HashSet<String>) -> Self {
+        self.aliases = aliases;
+        self
+    }
+    pub fn dependency(mut self, dependency: Dependency) -> Self {
+        self.dependency = Some(dependency);
+        self
+    }
+
+    pub fn build(mut self) -> Package {
+        self.id = self.id.replace("_", "-");
+        Package {
+            id: self.id,
+            size: self.size,
+            aliases: self.aliases,
+            dependency: self.dependency,
+        }
+    }
+}
+#[derive(Default)]
+
+pub struct Packages {
+    manifest: Vec<Package>,
+}
+
+// This is a perfect example of a strategy pattern
+impl Packages {
+    pub fn add_package(&mut self, package: Package) {
+        self.manifest.push(package);
+    }
+
+    fn get_used(&self, deps: &HashSet<Dependency>, imports: &HashSet<String>) -> Vec<Package> {
+        deps.iter()
+            .filter_map(|dep| {
+                self.manifest
+                    .iter()
+                    .find(|pkg| pkg.id == dep.id && !pkg.aliases.is_disjoint(imports))
+                    .map(|pkg| {
+                        PackageBuilder::new(pkg.id.clone(), pkg.aliases.clone(), pkg.size)
+                            .dependency(dep.clone())
+                            .build()
+                    })
+            })
+            .collect()
+    }
+
+    fn get_unused(&self, deps: &HashSet<Dependency>, imports: &HashSet<String>) -> Vec<Package> {
+        deps.iter()
+            .filter_map(|dep| {
+                self.manifest
+                    .iter()
+                    .find(|pkg| pkg.id == dep.id && pkg.aliases.is_disjoint(imports))
+                    .map(|pkg| {
+                        PackageBuilder::new(pkg.id.clone(), pkg.aliases.clone(), pkg.size)
+                            .dependency(dep.clone())
+                            .build()
+                    })
+            })
+            .collect()
+    }
+
+    fn get_untracked(&self, deps: &HashSet<Dependency>, imports: &HashSet<String>) -> Vec<Package> {
+        let dep_ids: HashSet<String> = deps.iter().map(|dep| dep.id.clone()).collect();
+
+        self.manifest
+            .iter()
+            .filter(|pkg| !pkg.aliases.is_disjoint(imports) && !dep_ids.contains(&pkg.id))
+            .cloned()
+            .collect()
+    }
+
+    pub fn scan(
+        &self,
+        config: Config,
+        deps: &HashSet<Dependency>,
+        imports: &HashSet<String>,
+    ) -> Vec<Package> {
+        match config.package_state {
+            PackageState::Untracked => self.get_untracked(deps, imports),
+            PackageState::Used => self.get_used(deps, imports),
+            PackageState::Unused => self.get_unused(deps, imports),
+        }
+    }
+
+    /// This function loads the packages from the specified site packages directory.
+    /// It takes a `SitePackages` object as input and returns a `Result` indicating success or failure.
+    pub fn load(&mut self, site_package: SitePackages) -> Result<()> {
+        // Iterate over each path in the site packages directory.
+        for path in site_package.paths() {
+            let glob_pattern = format!("{}/{}-info", path.display(), "*");
+
+            // Iterate over each entry that matches the glob pattern.
+            for entry in glob(&glob_pattern)?.filter_map(Result::ok) {
+                // Read the metadata file for the package.
+                let metadata_path = entry.join("METADATA");
+                let metadata_content = fs::read_to_string(&metadata_path)
+                    .with_context(|| format!("Failed to read METADATA in {:?}", entry))?;
+
+                // Extract the package `id` from the metadata.
+                let pkg_id = metadata_content
+                    .lines()
+                    .find_map(|line| line.strip_prefix("Name: "))
+                    .ok_or_else(|| anyhow!("Package name not found in METADATA"))?
+                    .to_lowercase();
+
+                // Read the record file for the package.
+                let record_path = entry.join("RECORD");
+                let record_content = fs::read_to_string(&record_path)
+                    .with_context(|| format!("Failed to read RECORD in {:?}", entry))?;
+
+                // Collect the aliases (root directory names) for the package.
+                let aliases: HashSet<String> = record_content
+                    .lines()
+                    .filter_map(|line| {
+                        let alias_path_str = line.split(',').next()?;
+                        let alias_path = Path::new(alias_path_str);
+
+                        // Check if the file extension is not .py
+                        if alias_path.extension().unwrap_or_default() != "py" {
+                            return None;
+                        }
+
+                        // Ensure there is at least one directory level in the path.
+                        // This is to avoid adding packages at top-level directories.
+                        // Ex: `site-packages/foo.py` is not a valid package.
+                        if alias_path.components().count() <= 1 {
+                            return None;
+                        }
+
+                        // Extract the root directory name.
+                        alias_path.components().next().and_then(|comp| {
+                            if let Component::Normal(root_dir) = comp {
+                                root_dir.to_str().map(ToString::to_string)
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                    .collect();
+
+                // If there are no aliases, skip to the next entry.
+                if aliases.is_empty() {
+                    continue;
+                }
+
+                // Calculate the size of the package by summing the sizes of all aliases.
+                // This is not the most accurate way to calculate the size, but it's a good approximation.
+                let size = aliases
+                    .iter()
+                    .map(|alias| path.join(alias))
+                    .map(|potential_path| get_size(&potential_path).unwrap_or(0))
+                    .sum();
+
+                // Create a new package using the extracted information and add it to the manifest.
+                let package = PackageBuilder::new(pkg_id, aliases, size).build();
+                self.add_package(package);
+            }
+        }
+        Ok(())
+    }
+
+    // For `testing` purposes ONLY. Not intended to be public facing API.
+    #[cfg(test)]
+    pub fn _mapping(&self) -> &Vec<Package> {
+        &self.manifest
+    }
 }
 
 /// Extract the first part of an import statement
@@ -46,7 +295,6 @@ fn print_error(msg: impl Into<String>) {
 fn stem_import(import: &str) -> String {
     import.split('.').next().unwrap_or_default().into()
 }
-
 /// Collects all the dependencies from the AST
 struct Imports {
     import: HashSet<String>,
@@ -103,108 +351,79 @@ pub fn get_imports(config: &Config) -> Result<HashSet<String>> {
             Ok(acc)
         })
 }
-
-fn visit_toml(value: &Value, deps: &mut HashSet<Dependency>, path: &str) {
-    if let Value::Table(table) = value {
-        table.iter().for_each(|(key, val)| match val {
-            Value::Table(dep_table) if key.ends_with("dependencies") => {
-                deps.extend(dep_table.iter().filter_map(|(name, val)| {
-                    let category = format!("{}.{}", path.trim_start_matches('.'), key);
-                    match val {
-                        Value::String(v) => Some(
-                            DependencyBuilder::new(name.to_string())
-                                .version(v.to_string())
-                                .category(category)
-                                .build(),
-                        ),
-                        Value::Table(_) => Some(
-                            DependencyBuilder::new(name.to_string())
-                                .category(category)
-                                .build(),
-                        ),
-                        _ => None,
-                    }
-                }));
-            }
-            _ => visit_toml(val, deps, &format!("{}.{}", path, key)),
-        });
-    }
+#[derive(Deserialize, Serialize, Debug, PartialEq, Clone, Eq, Hash)]
+pub struct Dependency {
+    pub id: String,
+    pub version: Option<String>,
+    pub category: Option<String>, // Renamed from type_ for clarity
 }
 
-/// Given a path to a `pyproject.toml` file, we will collect all the dependencies
-/// from `[tool.poetry.*]`
-// This will 100% need revisited and extended out to requirements.txt
-fn get_dependencies_from_toml(path: &Path) -> Result<HashSet<Dependency>> {
-    let toml_str = fs::read_to_string(path)
+/// Parses the `pyproject.toml` to collect all dependencies specified under `[tool.poetry.*]`.
+///
+/// # Arguments
+///
+/// * `path` - The path to the `pyproject.toml` file.
+///
+/// # Returns
+///
+/// Returns a `Result` containing a `HashSet` of `Dependency` if successful, or an error.
+pub fn collect_dependencies_from_toml(path: &Path) -> Result<HashSet<Dependency>> {
+    let toml_content = fs::read_to_string(path)
         .with_context(|| format!("Failed to read TOML file at {:?}", path))?;
-    let toml = toml::from_str(&toml_str).with_context(|| "Failed to parse TOML content")?;
+    let parsed_toml =
+        toml::from_str::<Value>(&toml_content).with_context(|| "Failed to parse TOML content")?;
 
-    let mut deps = HashSet::new();
+    let mut dependencies = HashSet::new();
+    collect_dependencies(&parsed_toml, &mut dependencies, "");
 
-    visit_toml(&toml, &mut deps, "");
-
-    Ok(deps)
+    Ok(dependencies)
 }
 
-/// Collect the site-packages directory path(s) and the virtual environment name
-pub fn get_site_package_dir(config: &Config) -> Result<SitePackage> {
-    let output = match Command::new("python").arg("-m").arg("site").output() {
-        Ok(o) => o,
-        Err(_) => {
-            print_error("Failed to execute `python -m site`. Are you sure Python is installed?");
-            ExitCode::GeneralError.exit();
-        }
-    };
+/// Recursively visits TOML values to collect dependencies.
+fn collect_dependencies(value: &Value, dependencies: &mut HashSet<Dependency>, path_prefix: &str) {
+    if let Value::Table(table) = value {
+        for (key, value) in table {
+            let current_path = if path_prefix.is_empty() {
+                key.clone()
+            } else {
+                format!("{}.{}", path_prefix, key)
+            };
 
-    let output_str = str::from_utf8(&output.stdout)
-        .context("Output was not valid UTF-8.")?
-        .trim();
-
-    let pkg_paths = output_str
-        .lines()
-        .filter(|line| {
-            line.contains("site-packages") && !line.trim_start().starts_with("USER_SITE:")
-        })
-        .map(|s| s.trim_matches(|c: char| c.is_whitespace() || c == '\'' || c == ','))
-        .map(PathBuf::from)
-        .collect();
-
-    // this logic might end up going away to be honest with ya!
-    let venv = env::var("VIRTUAL_ENV")
-        .ok()
-        .and_then(|path| path.split('/').last().map(String::from));
-
-    if config.env != Env::Test {
-        let prompt = match &venv {
-            Some(name) => format!("Detected virtual environment: `{}`. Is this correct?", name),
-            None => format!(
-                "WARNING: No virtual environment detected. Results may be inaccurate. Continue?"
-            )
-            .red()
-            .to_string(),
-        };
-
-        let user_input = Confirm::new()
-            .with_prompt(prompt)
-            .interact()
-            .context("Failed to get user input.")?;
-
-        if !user_input {
-            print_error("Exiting. Please activate the correct virtual environment and try again.");
-            ExitCode::GeneralError.exit();
+            match value {
+                Value::Table(dep_table) if key.ends_with("dependencies") => {
+                    let category = current_path;
+                    dep_table
+                        .iter()
+                        .filter_map(|(name, value)| match value {
+                            Value::String(version) => Some(Dependency {
+                                id: name.to_string(),
+                                version: Some(version.to_string()),
+                                category: Some(category.clone()),
+                            }),
+                            Value::Table(_) => Some(Dependency {
+                                id: name.to_string(),
+                                version: None,
+                                category: Some(category.clone()),
+                            }),
+                            _ => None,
+                        })
+                        .for_each(|dep| {
+                            dependencies.insert(dep);
+                        });
+                }
+                _ => collect_dependencies(value, dependencies, &current_path),
+            }
         }
     }
-
-    Ok(SitePackage::new(pkg_paths)?)
 }
-
 // // Can't read bash or bat scripts. WIll need to return to this issue
 pub fn analyze(config: Config) -> Result<ExitCode> {
-    let pyproject_deps = get_dependencies_from_toml(&config.dep_spec_file)?;
+    let pyproject_deps = collect_dependencies_from_toml(&config.dep_spec_file)?;
 
     // THIS IS SUPER SLOW, LET'S USE THE WALKBUILDER TO GET THE PKGS FROM FD
     let project_imports = get_imports(&config)?;
-    let site_pkgs = get_site_package_dir(&config)?;
+    // let site_pkgs = get_site_package_dir(&config)?;
+    let site_pkgs = SitePackages::get_site_packages()?;
 
     let mut packages = Packages::default();
 

@@ -1,6 +1,5 @@
 use clap::Parser;
 
-use crate::builders::PackageState;
 use crate::output::OutputKind;
 
 use anyhow::{anyhow, Result};
@@ -69,6 +68,20 @@ pub struct Opts {
         long_help
     )]
     pub output: OutputKind,
+}
+
+#[derive(clap::ValueEnum, Debug, PartialEq, Eq, Clone, Hash)]
+pub enum PackageState {
+    /// The dependency is installed, actively used in the project, and correctly listed in pyproject.toml.
+    /// This state indicates a fully integrated and properly managed dependency.
+    Used,
+    /// The dependency is installed and listed in pyproject.toml but is not actively used in the project.
+    /// Ideal for identifying and possibly removing unnecessary dependencies to clean up the project. (default)
+    Unused,
+    /// The dependency is installed and actively used in the project but is missing from pyproject.toml.
+    /// Highlights dependencies that are implicitly used but not formally declared, which may lead to
+    /// inconsistencies or issues in dependency management and deployment.
+    Untracked,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
