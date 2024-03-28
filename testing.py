@@ -1,19 +1,30 @@
-import numpy.test as numpy, levisawsome
-from sklearn import datasets
-from sklearn.model_selection import train_test_split
-from lalaland.model_selection import train_test_split
+import importlib.metadata
 
+# Replace 'requests' with the name of any installed package
+package_name = "requests"
 
-def test() -> None:
-    import pydoc
-    import testmon
-    from levels.kaka import popop
+# Get the version of the package
+version = importlib.metadata.version(package_name)
+print(f"Version: {version}")
 
+# Accessing other metadata
+metadata = importlib.metadata.metadata(package_name)
 
-class Test:
-    def __init__(self) -> None:
-        import polars as pl
+# Print selected metadata
+print(f"Metadata for {package_name}:")
+for key in ["Name", "Version", "Author", "Author-email", "Summary", "License"]:
+    print(f"{key}: {metadata.get(key)}")
 
-    def test(self) -> None:
-        def more_testing():
-            import papa
+# List all entry points provided by the package
+print("\nEntry Points:")
+entry_points = importlib.metadata.entry_points(
+    group=None, name=None, package=package_name
+)
+for entry in entry_points:
+    print(f"  {entry}")
+
+# List all files installed by the package
+print("\nFiles:")
+files = importlib.metadata.files(package_name)
+for file in files:
+    print(f"  {file}")

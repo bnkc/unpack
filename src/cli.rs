@@ -1,6 +1,8 @@
 use clap::Parser;
 
-use crate::defs::{OutputKind, PackageState};
+use crate::builders::PackageState;
+use crate::output::OutputKind;
+
 use anyhow::{anyhow, Result};
 use std::path::Path;
 

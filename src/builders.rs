@@ -1,22 +1,28 @@
 extern crate bytesize;
 
-use crate::exit_codes::ExitCode;
+use crate::exit_codes;
 use crate::Config;
 use anyhow::{anyhow, bail, Result};
-use bytesize::ByteSize;
+
+use anyhow::Context;
+
+use exit_codes::ExitCode;
+use glob::glob;
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
-use std::io::Write;
+use std::fs;
+use std::path::Component;
+use std::path::Path;
+extern crate fs_extra;
+
+// use std::process::ExitCode;
+
+use fs_extra::dir::get_size;
 use std::path::PathBuf;
-use std::{default, vec};
-use tabled::settings::Panel;
-use tabled::{settings::Style, Table, Tabled}; // Add missing imports
 
 #[derive(Deserialize, Debug, PartialEq, Clone)]
-// pub struct SitePackages(HashSet<PathBuf>);
 pub struct SitePackage {
     paths: HashSet<PathBuf>,
 }
@@ -56,23 +62,23 @@ pub enum PackageState {
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone, Eq, Hash)]
 pub struct Dependency {
-    pub id: String,
-    pub version: Option<String>,
-    pub category: Option<String>,
+    id: String,
+    version: Option<String>,
+    type_: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone, Eq, Hash)]
 pub struct DependencyBuilder {
-    pub id: String,
-    pub version: Option<String>,
-    pub category: Option<String>,
+    id: String,
+    version: Option<String>,
+    type_: Option<String>,
 }
 impl DependencyBuilder {
     pub fn new(id: String) -> Self {
         Self {
             id,
             version: None,
-            category: None,
+            type_: None,
         }
     }
 
@@ -82,7 +88,7 @@ impl DependencyBuilder {
     }
 
     pub fn category(mut self, category: String) -> Self {
-        self.category = Some(category);
+        self.type_ = Some(category);
         self
     }
 
@@ -90,7 +96,7 @@ impl DependencyBuilder {
         Dependency {
             id: self.id,
             version: self.version,
-            category: self.category,
+            type_: self.type_,
         }
     }
 }
@@ -156,19 +162,6 @@ impl Packages {
         self.manifest.push(package);
     }
 
-    pub fn get_packages(
-        &self,
-        config: Config,
-        deps: &HashSet<Dependency>,
-        imports: &HashSet<String>,
-    ) -> Vec<Package> {
-        match config.package_state {
-            PackageState::Used => self.get_used(deps, imports),
-            PackageState::Unused => self.get_unused(deps, imports),
-            PackageState::Untracked => self.get_untracked(deps, imports),
-        }
-    }
-
     fn get_used(&self, deps: &HashSet<Dependency>, imports: &HashSet<String>) -> Vec<Package> {
         deps.iter()
             .filter_map(|dep| {
@@ -215,114 +208,87 @@ impl Packages {
             .collect()
     }
 
+    pub fn scan(
+        &self,
+        config: Config,
+        deps: &HashSet<Dependency>,
+        imports: &HashSet<String>,
+    ) -> Vec<Package> {
+        match config.package_state {
+            PackageState::Used => self.get_used(deps, imports),
+            PackageState::Unused => self.get_unused(deps, imports),
+            PackageState::Untracked => self.get_untracked(deps, imports),
+        }
+    }
+
+    pub fn load(&mut self, site_package: SitePackage) -> Result<()> {
+        for path in site_package.paths() {
+            let glob_pattern = format!("{}/{}-info", path.display(), "*");
+            for entry in glob(&glob_pattern)?.filter_map(Result::ok) {
+                let metadata_path = entry.join("METADATA");
+                let metadata_content = fs::read_to_string(&metadata_path)
+                    .with_context(|| format!("Failed to read METADATA in {:?}", entry))?;
+
+                let pkg_id = metadata_content
+                    .lines()
+                    .find_map(|line| line.strip_prefix("Name: "))
+                    .ok_or_else(|| anyhow!("Package name not found in METADATA"))?
+                    .to_lowercase();
+
+                let record_path = entry.join("RECORD");
+                let record_content = fs::read_to_string(&record_path)
+                    .with_context(|| format!("Failed to read RECORD in {:?}", entry))?;
+
+                let aliases: HashSet<String> = record_content
+                    .lines()
+                    .filter_map(|line| {
+                        let alias_path_str = line.split(',').next()?;
+                        let alias_path = Path::new(alias_path_str);
+
+                        // Check if the file extension is not .py
+                        if alias_path.extension().unwrap_or_default() != "py" {
+                            return None;
+                        }
+
+                        // Ensure there is at least one directory level in the path.
+                        // This is to avoid adding packages are top-level directories.
+                        // Ex: `site-packages/foo.py` is not a valid package.
+                        if alias_path.components().count() <= 1 {
+                            return None;
+                        }
+
+                        // Extract the root directory name.
+                        alias_path.components().next().and_then(|comp| {
+                            if let Component::Normal(root_dir) = comp {
+                                root_dir.to_str().map(ToString::to_string)
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                    .collect();
+
+                if aliases.is_empty() {
+                    continue;
+                }
+
+                let size = aliases
+                    .iter()
+                    .map(|alias| path.join(alias))
+                    .map(|potential_path| get_size(&potential_path).unwrap_or(0))
+                    .sum();
+
+                let package = PackageBuilder::new(pkg_id, aliases, size).build();
+
+                self.add_package(package);
+            }
+        }
+        Ok(())
+    }
+
     // For `testing` purposes ONLY. Not intended to be public facing API.
     #[cfg(test)]
     pub fn _mapping(&self) -> &Vec<Package> {
         &self.manifest
-    }
-}
-
-#[derive(clap::ValueEnum, Clone, Copy, Debug)]
-pub enum OutputKind {
-    /// Human-readable output format.
-    Human,
-    /// JSON output format.
-    Json,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
-pub struct Analysis {
-    pub success: bool,
-    pub packages: Vec<Package>,
-    pub note: Option<String>,
-}
-
-#[derive(Tabled)]
-struct Record {
-    name: String,
-    version: String,
-    size: String,
-}
-
-impl Analysis {
-    // Simplified entry point for printing the report
-    pub fn print_report(&self, config: &Config, stdout: impl Write) -> Result<ExitCode> {
-        match config.output {
-            OutputKind::Human => self.pretty_print(stdout, config),
-            OutputKind::Json => self.json_print(stdout),
-        }
-    }
-
-    fn pretty_print(&self, mut stdout: impl Write, config: &Config) -> Result<ExitCode> {
-        if self.success {
-            writeln!(stdout, "All dependencies are correctly managed!")?;
-        } else {
-            writeln!(stdout, "\n{:?} Dependencies", config.package_state)?;
-
-            match config.package_state {
-                PackageState::Untracked => self.print_untracked(&mut stdout)?,
-                _ => self.print(&mut stdout)?,
-            }
-
-            if let Some(note) = &self.note {
-                writeln!(stdout, "\nNote: {}", note)?;
-            }
-        }
-
-        stdout.flush()?;
-        Ok(ExitCode::Success)
-    }
-
-    fn print_untracked(&self, stdout: &mut impl Write) -> Result<()> {
-        let records: Vec<Record> = self
-            .packages
-            .iter()
-            .map(|pkg_info| Record {
-                name: pkg_info.package.id.clone(),
-                version: String::from("N/A"),
-                size: ByteSize::b(pkg_info.package.size).to_string_as(true),
-            })
-            .collect();
-
-        let table = Table::new(records).to_string();
-        write!(stdout, "{}", table)?;
-        Ok(())
-    }
-
-    fn print(&self, stdout: &mut impl Write) -> Result<(), std::io::Error> {
-        let mut category_groups: HashMap<String, Vec<Record>> = HashMap::new();
-        for pkg_info in &self.packages {
-            if let Some(ref dep) = pkg_info.dependency {
-                category_groups
-                    .entry(dep.category.clone().unwrap_or_else(|| "N/A".to_string()))
-                    .or_default()
-                    .push(Record {
-                        name: dep.id.clone(),
-                        version: dep.version.clone().unwrap_or_else(|| "N/A".to_string()),
-                        size: ByteSize::b(pkg_info.package.size).to_string_as(true),
-                    });
-            }
-        }
-
-        for (category, records) in category_groups {
-            let mut table = Table::new(&records);
-
-            table
-                .with(Panel::header(category))
-                .with(Style::ascii())
-                .with(Panel::footer("End of table"));
-
-            writeln!(stdout, "\n{}", table)?;
-        }
-
-        Ok(())
-    }
-
-    // JSON printing remains unchanged
-    fn json_print(&self, mut stdout: impl Write) -> Result<ExitCode> {
-        let json = serde_json::to_string(self).expect("Failed to serialize to JSON.");
-        writeln!(stdout, "{}", json)?;
-        stdout.flush()?;
-        Ok(ExitCode::Success)
     }
 }
