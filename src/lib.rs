@@ -2,7 +2,6 @@
 extern crate test;
 
 pub mod cli;
-pub mod defs;
 pub mod exit_codes;
 pub mod output;
 
@@ -10,14 +9,22 @@ extern crate fs_extra;
 
 use fs_extra::dir::get_size;
 
+use bytesize::ByteSize;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
+
+use std::io::Write;
+use tabled::settings::Panel;
+use tabled::{settings::Style, Table, Tabled};
+
 use std::fs;
 use std::hash::Hash;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::str;
+// use toml_edit::visit::Visit;
 
 use crate::cli::*;
 // use crate::defs::{Dependency, Package, PackageBuilder, Packages, SitePackage};
@@ -36,8 +43,9 @@ use std::path::Component;
 
 use anyhow::{Context, Result};
 use glob::glob;
-use rustpython_ast::Visitor;
+use rustpython_ast::Visitor as AstVisitor;
 use rustpython_parser::{ast, parse, Mode};
+
 use toml::Value;
 use walkdir::WalkDir;
 
@@ -46,7 +54,10 @@ pub struct SitePackages {
     paths: HashSet<PathBuf>,
 }
 
+/// This struct is used to store a set of validated site-packages paths.
 impl SitePackages {
+    /// Creates a new instance of `SitePackages` with the given paths.
+    /// Validates the paths and returns a `Result` indicating success or failure.
     pub fn new(paths: HashSet<PathBuf>) -> Result<Self> {
         let validated_paths: HashSet<PathBuf> =
             paths.into_iter().filter(|path| path.exists()).collect();
@@ -59,35 +70,39 @@ impl SitePackages {
             paths: validated_paths,
         })
     }
-    // Function to get the site package directory
-    /// This function executes the command `python -m site` to get the site package directory
-    /// It returns a Result containing a `SitePackage` struct or an error
-    pub fn get_site_packages() -> Result<Self> {
-        let output = Command::new("python")
-            .arg("-m")
-            .arg("site")
-            .output()
-            .context("Failed to execute `python -m site`. Are you sure Python is installed?")?;
 
-        let output_str = str::from_utf8(&output.stdout)
-            .context("Output was not valid UTF-8.")?
-            .trim();
-
-        // Extract the site package paths from the output
-        let pkg_paths = output_str
-            .lines()
-            .filter(|line| line.contains("site-packages"))
-            .map(|s| s.trim_matches(|c: char| c.is_whitespace() || c == '\'' || c == ','))
-            .map(PathBuf::from)
-            .collect();
-
-        // Create a new SitePackage struct with the extracted paths
-        SitePackages::new(pkg_paths)
-    }
-
+    /// A reference to the `HashSet` of `PathBuf` representing the site-packages paths.
     pub fn paths(&self) -> &HashSet<PathBuf> {
         &self.paths
     }
+}
+
+/// This method executes the command `python -m site` to get the site package directory
+/// It returns a Result containing a `SitePackage` struct or an error
+pub fn get_site_packages() -> Result<SitePackages> {
+    let output = Command::new("python")
+        .arg("-m")
+        .arg("site")
+        .output()
+        .context("Failed to execute `python -m site`. Are you sure Python is installed?")?;
+
+    let output_str = str::from_utf8(&output.stdout)
+        .context("Output was not valid UTF-8.")?
+        .trim();
+
+    // Extract the site package paths from the output
+    let pkg_paths: HashSet<PathBuf> = output_str
+        .lines()
+        .filter(|line| line.contains("site-packages"))
+        .map(|s| s.trim_matches(|c: char| c.is_whitespace() || c == '\'' || c == ','))
+        .map(PathBuf::from)
+        .collect();
+
+    if pkg_paths.is_empty() {
+        bail!("No site-packages found. Are you sure you are in a virtual environment?");
+    }
+
+    SitePackages::new(pkg_paths)
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -146,7 +161,6 @@ pub struct Packages {
     manifest: Vec<Package>,
 }
 
-// This is a perfect example of a strategy pattern
 impl Packages {
     pub fn add_package(&mut self, package: Package) {
         self.manifest.push(package);
@@ -194,7 +208,7 @@ impl Packages {
 
     pub fn scan(
         &self,
-        config: Config,
+        config: &Config,
         deps: &HashSet<Dependency>,
         imports: &HashSet<String>,
     ) -> Vec<Package> {
@@ -210,7 +224,8 @@ impl Packages {
     pub fn load(&mut self, site_package: SitePackages) -> Result<()> {
         // Iterate over each path in the site packages directory.
         for path in site_package.paths() {
-            let glob_pattern = format!("{}/{}-info", path.display(), "*");
+            // There is also a `*.egg-info` directory that we will ignore for now
+            let glob_pattern = format!("{}/{}dist-info", path.display(), "*");
 
             // Iterate over each entry that matches the glob pattern.
             for entry in glob(&glob_pattern)?.filter_map(Result::ok) {
@@ -297,11 +312,10 @@ fn stem_import(import: &str) -> String {
 }
 /// Collects all the dependencies from the AST
 struct Imports {
-    import: HashSet<String>,
+    manifest: HashSet<String>,
 }
 
-/// This is a visitor pattern that implements the Visitor trait
-impl Visitor for Imports {
+impl AstVisitor for Imports {
     /// This is a generic visit method that will be called for all nodes
     fn visit_stmt(&mut self, node: ast::Stmt<ast::text_size::TextRange>) {
         self.generic_visit_stmt(node);
@@ -309,14 +323,14 @@ impl Visitor for Imports {
     /// This method is `overridden` to collect the dependencies into `self.deps`
     fn visit_stmt_import(&mut self, node: ast::StmtImport) {
         node.names.iter().for_each(|alias| {
-            self.import.insert(stem_import(&alias.name));
+            self.manifest.insert(stem_import(&alias.name));
         })
     }
 
     /// This method is `overridden` to collect the dependencies into `self.deps`
     fn visit_stmt_import_from(&mut self, node: ast::StmtImportFrom) {
         if let Some(module) = &node.module {
-            self.import.insert(stem_import(module));
+            self.manifest.insert(stem_import(module));
         }
     }
 }
@@ -336,7 +350,7 @@ pub fn get_imports(config: &Config) -> Result<HashSet<String>> {
             let module = parse(&file_content, Mode::Module, "<embedded>")?;
 
             let mut collector = Imports {
-                import: HashSet::new(),
+                manifest: HashSet::new(),
             };
 
             module
@@ -346,449 +360,494 @@ pub fn get_imports(config: &Config) -> Result<HashSet<String>> {
                 .into_iter()
                 .for_each(|node| collector.visit_stmt(node));
 
-            acc.extend(collector.import);
+            acc.extend(collector.manifest);
 
             Ok(acc)
         })
 }
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone, Eq, Hash)]
 pub struct Dependency {
-    pub id: String,
-    pub version: Option<String>,
-    pub category: Option<String>, // Renamed from type_ for clarity
+    id: String,
+    version: Option<String>,
+    category: Option<String>,
 }
 
-/// Parses the `pyproject.toml` to collect all dependencies specified under `[tool.poetry.*]`.
-///
-/// # Arguments
-///
-/// * `path` - The path to the `pyproject.toml` file.
-///
-/// # Returns
-///
-/// Returns a `Result` containing a `HashSet` of `Dependency` if successful, or an error.
-pub fn collect_dependencies_from_toml(path: &Path) -> Result<HashSet<Dependency>> {
-    let toml_content = fs::read_to_string(path)
-        .with_context(|| format!("Failed to read TOML file at {:?}", path))?;
-    let parsed_toml =
-        toml::from_str::<Value>(&toml_content).with_context(|| "Failed to parse TOML content")?;
-
-    let mut dependencies = HashSet::new();
-    collect_dependencies(&parsed_toml, &mut dependencies, "");
-
-    Ok(dependencies)
+pub struct DependencyBuilder {
+    id: String,
+    version: Option<String>,
+    category: Option<String>,
 }
 
-/// Recursively visits TOML values to collect dependencies.
-fn collect_dependencies(value: &Value, dependencies: &mut HashSet<Dependency>, path_prefix: &str) {
-    if let Value::Table(table) = value {
-        for (key, value) in table {
-            let current_path = if path_prefix.is_empty() {
-                key.clone()
-            } else {
-                format!("{}.{}", path_prefix, key)
-            };
+impl DependencyBuilder {
+    pub fn new(id: String) -> Self {
+        Self {
+            id,
+            version: None,
+            category: None,
+        }
+    }
 
-            match value {
-                Value::Table(dep_table) if key.ends_with("dependencies") => {
-                    let category = current_path;
-                    dep_table
-                        .iter()
-                        .filter_map(|(name, value)| match value {
-                            Value::String(version) => Some(Dependency {
-                                id: name.to_string(),
-                                version: Some(version.to_string()),
-                                category: Some(category.clone()),
-                            }),
-                            Value::Table(_) => Some(Dependency {
-                                id: name.to_string(),
-                                version: None,
-                                category: Some(category.clone()),
-                            }),
-                            _ => None,
-                        })
-                        .for_each(|dep| {
-                            dependencies.insert(dep);
-                        });
-                }
-                _ => collect_dependencies(value, dependencies, &current_path),
-            }
+    pub fn version(mut self, version: String) -> Self {
+        self.version = Some(version);
+        self
+    }
+
+    pub fn category(mut self, category: String) -> Self {
+        self.category = Some(category);
+        self
+    }
+
+    pub fn build(self) -> Dependency {
+        Dependency {
+            id: self.id,
+            version: self.version,
+            category: self.category,
         }
     }
 }
-// // Can't read bash or bat scripts. WIll need to return to this issue
-pub fn analyze(config: Config) -> Result<ExitCode> {
-    let pyproject_deps = collect_dependencies_from_toml(&config.dep_spec_file)?;
 
-    // THIS IS SUPER SLOW, LET'S USE THE WALKBUILDER TO GET THE PKGS FROM FD
-    let project_imports = get_imports(&config)?;
-    // let site_pkgs = get_site_package_dir(&config)?;
-    let site_pkgs = SitePackages::get_site_packages()?;
+struct Dependencies {
+    manifest: HashSet<Dependency>,
+    current_path: Vec<String>,
+}
+
+impl Dependencies {
+    fn new() -> Self {
+        Dependencies {
+            manifest: HashSet::new(),
+            current_path: Vec::new(),
+        }
+    }
+
+    fn visit_table(&mut self, key: &str, table: &toml::value::Table) {
+        self.current_path.push(key.to_string());
+
+        // Check if we're inside a dependencies table
+        let current_path_str = self.current_path.join(".");
+        if current_path_str.ends_with("dependencies") {
+            for (dep_name, dep_value) in table {
+                self.visit_value(dep_name, dep_value);
+            }
+        } else {
+            for (k, v) in table {
+                match v {
+                    toml::Value::Table(t) => self.visit_table(k, t),
+                    _ => self.visit_value(k, v),
+                }
+            }
+        }
+
+        // Backtrack on the path
+        self.current_path.pop();
+    }
+
+    fn visit_value(&mut self, key: &str, value: &toml::Value) {
+        if let toml::Value::String(version) = value {
+            let category = self.current_path.join(".");
+            let category = category.strip_prefix(".").unwrap_or(&category).to_string();
+
+            self.manifest.insert(
+                DependencyBuilder::new(key.to_string())
+                    .version(version.clone())
+                    .category(category)
+                    .build(),
+            );
+        }
+    }
+}
+
+// This function reads a TOML file at the specified path and returns a HashSet of Dependency structs.
+// It uses the toml crate to parse the TOML content.
+fn get_dependencies(path: &Path) -> Result<HashSet<Dependency>> {
+    // Read the contents of the TOML file into a string
+    let toml_str = fs::read_to_string(path)
+        .with_context(|| format!("Failed to read TOML file at {:?}", path))?;
+
+    // Parse the TOML content into a toml::Value
+    let toml_value: toml::Value =
+        toml::from_str(&toml_str).with_context(|| "Failed to parse TOML content")?;
+
+    // Create a new Dependencies struct
+    let mut deps = Dependencies::new();
+
+    if let toml::Value::Table(table) = toml_value {
+        deps.visit_table("", &table);
+    }
+
+    // Return the manifest (HashSet of Dependency structs)
+    Ok(deps.manifest)
+}
+
+#[derive(Tabled)]
+struct Record {
+    name: String,
+    version: String,
+    size: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
+pub struct Outcome {
+    pub success: bool,
+    pub packages: Vec<Package>,
+    pub note: Option<String>,
+}
+
+impl Outcome {
+    pub fn print_report(&self, config: &Config, stdout: impl Write) -> Result<ExitCode> {
+        match config.output {
+            OutputKind::Human => self.pretty_print(stdout, config),
+            OutputKind::Json => self.json_print(stdout),
+        }
+    }
+
+    fn pretty_print(&self, mut stdout: impl Write, config: &Config) -> Result<ExitCode> {
+        if self.success {
+            writeln!(stdout, "All dependencies are correctly managed!")?;
+        } else {
+            writeln!(stdout, "\n{:?} Dependencies", config.package_state)?;
+
+            match config.package_state {
+                PackageState::Untracked => self.print_untracked(&mut stdout)?,
+                _ => self.print(&mut stdout)?,
+            }
+
+            if let Some(note) = &self.note {
+                writeln!(stdout, "\nNote: {}", note)?;
+            }
+        }
+
+        stdout.flush()?;
+        Ok(ExitCode::Success)
+    }
+
+    fn print_untracked(&self, stdout: &mut impl Write) -> Result<()> {
+        let records: Vec<Record> = self
+            .packages
+            .iter()
+            .map(|package| Record {
+                name: package.id.clone(),
+                version: String::from("N/A"),
+                size: ByteSize::b(package.size).to_string_as(true),
+            })
+            .collect();
+
+        let table = Table::new(records).to_string();
+        write!(stdout, "{}", table)?;
+        Ok(())
+    }
+
+    fn print(&self, stdout: &mut impl Write) -> Result<(), std::io::Error> {
+        let mut category_groups: HashMap<String, Vec<Record>> = HashMap::new();
+        let mut category_sizes: HashMap<String, u64> = HashMap::new(); // New HashMap to store category sizes
+
+        for package in &self.packages {
+            if let Some(ref dep) = package.dependency {
+                let category = dep.category.clone().unwrap_or_else(|| "N/A".to_string());
+                // let size = ByteSize::b(package.size);
+
+                category_groups
+                    .entry(category.clone())
+                    .or_default()
+                    .push(Record {
+                        name: dep.id.clone(),
+                        version: dep.version.clone().unwrap_or_else(|| "N/A".to_string()),
+                        size: ByteSize::b(package.size).to_string_as(true),
+                    });
+
+                *category_sizes.entry(category).or_default() += package.size;
+            }
+        }
+
+        for (category, records) in category_groups {
+            let mut table = Table::new(&records);
+
+            table
+                .with(Panel::header(category.clone()))
+                .with(Style::ascii())
+                .with(Panel::footer(format!(
+                    "Total Size: {}",
+                    ByteSize::b(category_sizes[&category]).to_string_as(true)
+                ))); // Display total size in footer
+
+            writeln!(stdout, "\n{}", table)?;
+        }
+
+        Ok(())
+    }
+
+    // JSON printing remains unchanged
+    fn json_print(&self, mut stdout: impl Write) -> Result<ExitCode> {
+        let json = serde_json::to_string(self).expect("Failed to serialize to JSON.");
+        writeln!(stdout, "{}", json)?;
+        stdout.flush()?;
+        Ok(ExitCode::Success)
+    }
+}
+
+pub fn analyze(config: Config) -> Result<ExitCode> {
+    let mut outcome = Outcome::default();
+
+    let dependencies = get_dependencies(&config.dep_spec_file)?;
+    let imports = get_imports(&config)?;
+    let site_pkgs = get_site_packages()?;
 
     let mut packages = Packages::default();
 
-    // Loads the packages from the local site packages
     packages.load(site_pkgs)?;
 
-    let test = packages.scan(config, &pyproject_deps, &project_imports);
-    println!("{:#?}", test);
+    let scanned_packages = packages.scan(&config, &dependencies, &imports);
 
-    Ok(ExitCode::Success)
+    outcome.packages = scanned_packages;
+    outcome.success = outcome.packages.is_empty();
 
-    // let pkgs = get_installed_packages(site_pkgs)?;
-    // println!("here is what is in the site packages {:#?}", pkgs);
+    if !outcome.success {
+        let mut note = "".to_owned();
+        note += "Note: There might be false-positives.\n";
+        note += "      For example, `pip-udeps` cannot detect usage of packages that are not imported under `[tool.poetry.*]`.\n";
+        outcome.note = Some(note);
+    }
 
-    // println!("here is what is in the pyproject.toml {:?}", pyproject_deps);
-
-    // outcome.packages = pkgs.scan(config, &pyproject_deps, &project_imports);
-
-    // println!("here is what is relevant {:#?}", relevant_pkgs);
-
-    // let used_pkgs = installed_pkgs.filter_used_pkgs(&imports);
-
-    // THIS IS WRONG. IF THE DEP IS NOT INSTALLED IT'S NOT A "UNUSED DEP"
-    // outcome.unused_deps = pyproject_deps
-    //     .into_iter()
-    //     .filter(|dep| !used_pkgs.contains(&dep.id) && !DEFAULT_PKGS.contains(&dep.id.as_str()))
-    //     .collect();
-
-    // outcome.packages = relevant_pkgs;
-
-    // println!("here is what is unused {:?}", outcome.unused_deps);
-
-    // outcome.success = outcome.unused_deps.is_empty();
-
-    // if !outcome.success {
-    //     let mut note = "".to_owned();
-    //     note += "Note: There might be false-positives.\n";
-    //     note += "      For example, `pip-udeps` cannot detect usage of packages that are not imported under `[tool.poetry.*]`.\n";
-    //     outcome.note = Some(note);
-    // }
-
-    // Ok(outcome)
-
-    // print_report(&config, std::io::stdout())
+    outcome.print_report(&config, std::io::stdout())
 }
 
-// #[cfg(test)]
-// mod tests {
+#[cfg(test)]
+mod tests {
 
-//     use super::*;
+    use super::*;
 
-//     use defs::{OutputKind, PackageState};
-//     use std::fs::File;
-//     use std::io::Write;
-//     use std::io::{self};
-//     use tempfile::TempDir;
-//     use test::Bencher;
+    use std::fs::File;
+    use std::io::Write;
+    use std::io::{self};
+    use tempfile::TempDir;
+    use test::Bencher;
 
-//     // Used to create a temporary directory with the given directories and files
-//     fn create_working_directory(
-//         dirs: &[&'static str],
-//         files: Option<&[&'static str]>,
-//     ) -> Result<TempDir, io::Error> {
-//         let temp_dir = TempDir::new()?;
+    // Used to create a temporary directory with the given directories and files
+    fn create_working_directory(
+        dirs: &[&'static str],
+        files: Option<&[&'static str]>,
+    ) -> Result<TempDir, io::Error> {
+        let temp_dir = TempDir::new()?;
 
-//         dirs.iter().for_each(|directory| {
-//             let dir_path = temp_dir.path().join(directory);
-//             fs::create_dir_all(dir_path).unwrap();
-//         });
+        dirs.iter().for_each(|directory| {
+            let dir_path = temp_dir.path().join(directory);
+            fs::create_dir_all(dir_path).unwrap();
+        });
 
-//         if let Some(files) = files {
-//             files.iter().for_each(|file| {
-//                 let file_path = temp_dir.path().join(file);
-//                 File::create(file_path).unwrap();
-//             });
-//         }
+        if let Some(files) = files {
+            files.iter().for_each(|file| {
+                let file_path = temp_dir.path().join(file);
+                File::create(file_path).unwrap();
+            });
+        }
 
-//         Ok(temp_dir)
-//     }
+        Ok(temp_dir)
+    }
 
-//     struct TestEnv {
-//         /// Temporary project directory
-//         _temp_dir: TempDir,
+    struct TestEnv {
+        /// Temporary project directory
+        _temp_dir: TempDir,
 
-//         /// Test Configuration struct
-//         config: Config,
-//     }
+        /// Test Configuration struct
+        config: Config,
+    }
 
-//     impl TestEnv {
-//         fn new(dirs: &[&'static str], files: Option<&[&'static str]>) -> Self {
-//             let temp_dir = create_working_directory(dirs, files).unwrap();
-//             let base_directory = temp_dir.path().join(dirs[0]);
-//             let pyproject_path: PathBuf = base_directory.join("pyproject.toml");
-//             let mut file = File::create(&pyproject_path).unwrap();
+    impl TestEnv {
+        fn new(dirs: &[&'static str], files: Option<&[&'static str]>) -> Self {
+            let temp_dir = create_working_directory(dirs, files).unwrap();
+            let base_directory = temp_dir.path().join(dirs[0]);
+            let pyproject_path: PathBuf = base_directory.join("pyproject.toml");
+            let mut file = File::create(&pyproject_path).unwrap();
 
-//             file.write_all(
-//                 r#"
-//                             [tool.poetry.dependencies]
-//                             requests = "2.25.1"
-//                             python = "^3.8"
-//                             pandas = "^1.2.0"
-//                             "#
-//                 .as_bytes(),
-//             )
-//             .unwrap();
+            file.write_all(
+                r#"
+                            [tool.poetry.dependencies]
+                            requests = "2.25.1"
+                            python = "^3.8"
+                            pandas = "^1.2.0"
+                            "#
+                .as_bytes(),
+            )
+            .unwrap();
 
-//             let config = Config {
-//                 base_directory,
-//                 dep_spec_file: pyproject_path,
-//                 ignore_hidden: false,
-//                 env: Env::Test,
-//                 output: OutputKind::Human,
-//                 package_state: PackageState::Unused,
-//             };
+            let config = Config {
+                base_directory,
+                dep_spec_file: pyproject_path,
+                ignore_hidden: false,
+                env: Env::Test,
+                output: OutputKind::Human,
+                package_state: PackageState::Unused,
+            };
 
-//             Self {
-//                 _temp_dir: temp_dir,
-//                 config,
-//             }
-//         }
-//     }
+            Self {
+                _temp_dir: temp_dir,
+                config,
+            }
+        }
+    }
 
-//     #[bench]
-//     fn bench_get_used_imports(b: &mut Bencher) {
-//         let te = TestEnv::new(&["dir1", "dir2"], Some(&["file1.py"]));
-//         b.iter(|| get_imports(&te.config));
-//     }
+    #[bench]
+    fn bench_get_used_imports(b: &mut Bencher) {
+        let te = TestEnv::new(&["dir1", "dir2"], Some(&["file1.py"]));
+        b.iter(|| get_imports(&te.config));
+    }
 
-//     #[bench]
-//     fn bench_get_dependencies_from_toml(b: &mut Bencher) {
-//         let te = TestEnv::new(&["dir1", "dir2"], Some(&["pyproject.toml"]));
-//         b.iter(|| get_dependencies_from_toml(&te.config.dep_spec_file));
-//     }
+    #[bench]
+    fn bench_get_dependencies(b: &mut Bencher) {
+        let te = TestEnv::new(&["dir1", "dir2"], Some(&["pyproject.toml"]));
+        b.iter(|| get_dependencies(&te.config.dep_spec_file));
+    }
 
-//     // #[test]
-//     // fn basic_usage() {
-//     //     let te = TestEnv::new(
-//     //         &["dir1", "dir2"],
-//     //         Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
-//     //     );
+    #[test]
+    fn stem_import_correctly_stems() {
+        let first_part = stem_import("os.path");
+        assert_eq!(first_part.as_str(), "os");
 
-//     //     let unused_deps = get_unused_dependencies(&te.config);
-//     //     assert!(unused_deps.is_ok());
+        let first_part = stem_import("os");
+        assert_eq!(first_part.as_str(), "os");
 
-//     //     let outcome = unused_deps.unwrap();
-//     //     assert_eq!(outcome.success, false); // There should be unused dependencies
+        let first_part = stem_import("");
+        assert_eq!(first_part.as_str(), "");
+    }
 
-//     //     // This is because we use python by default
-//     //     assert_eq!(
-//     //         outcome.unused_deps.len(),
-//     //         2,
-//     //         "There should be 2 unused dependencies"
-//     //     );
-//     //     // assert_eq!(outcome.unused_deps.iter().next().unwrap().name, "pandas");
-//     //     assert!(outcome
-//     //         .unused_deps
-//     //         .iter()
-//     //         .any(|dep| dep.id == "pandas" || dep.id == "requests"));
+    #[test]
+    fn get_used_imports_correctly_collects() {
+        let te = TestEnv::new(
+            &["dir1", "dir2"],
+            Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
+        );
 
-//     //     // Now let's import requests in file1.py
-//     //     let file_path = te.config.base_directory.join("file1.py");
-//     //     let mut file = File::create(file_path).unwrap();
-//     //     file.write_all("import requests".as_bytes()).unwrap();
+        let used_imports = get_imports(&te.config);
+        assert!(used_imports.is_ok());
 
-//     //     let unused_deps = get_unused_dependencies(&te.config);
-//     //     assert!(unused_deps.is_ok());
+        let used_imports = used_imports.unwrap();
+        assert_eq!(used_imports.len(), 0);
 
-//     //     // check that there are no unused dependencies
-//     //     let outcome = unused_deps.unwrap();
-//     //     assert_eq!(outcome.success, false);
-//     //     assert_eq!(outcome.unused_deps.len(), 1);
+        let file_path = te.config.base_directory.join("file1.py");
+        let mut file = File::create(file_path).unwrap();
+        file.write_all(r#"import pandas as pd"#.as_bytes()).unwrap();
 
-//     //     // Now let's import requests in file1.py
-//     //     let file_path = te.config.base_directory.join("file1.py");
-//     //     let mut file = File::create(file_path).unwrap();
-//     //     file.write_all("import requests\nimport pandas as pd".as_bytes())
-//     //         .unwrap();
+        let used_imports = get_imports(&te.config);
+        assert!(used_imports.is_ok());
 
-//     //     let unused_deps = get_unused_dependencies(&te.config);
-//     //     assert!(unused_deps.is_ok());
-//     //     assert_eq!(
-//     //         unused_deps.unwrap().unused_deps.len(),
-//     //         0,
-//     //         "There should be no unused dependency"
-//     //     );
-//     // }
+        let used_imports = used_imports.unwrap();
+        assert_eq!(used_imports.len(), 1);
+        assert!(used_imports.contains("pandas"));
+        assert!(!used_imports.contains("sklearn"));
+    }
 
-//     #[test]
-//     fn stem_import_correctly_stems() {
-//         let first_part = stem_import("os.path");
-//         assert_eq!(first_part.as_str(), "os");
+    #[test]
+    fn get_site_package_dir_success() {
+        let site_pkgs = get_site_packages().unwrap();
 
-//         let first_part = stem_import("os");
-//         assert_eq!(first_part.as_str(), "os");
+        assert_eq!(site_pkgs.paths.len(), 1);
+    }
 
-//         let first_part = stem_import("");
-//         assert_eq!(first_part.as_str(), "");
-//     }
+    #[test]
+    fn get_installed_packages_correctly_maps() {
+        // Create a temporary environment resembling site-packages
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let site_packages_dir = temp_dir.path().join("site-packages");
+        fs::create_dir(&site_packages_dir).unwrap();
 
-//     #[test]
-//     fn get_used_imports_correctly_collects() {
-//         let te = TestEnv::new(
-//             &["dir1", "dir2"],
-//             Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
-//         );
+        // Simulate a couple of installed packages with top_level.txt files
+        let pkg1_dir = site_packages_dir.join("example_pkg1-0.1.0-info");
+        fs::create_dir_all(&pkg1_dir).unwrap();
+        fs::write(pkg1_dir.join("top_level.txt"), "example_pkg1\n").unwrap();
 
-//         let used_imports = get_imports(&te.config);
-//         assert!(used_imports.is_ok());
+        let pkg2_dir = site_packages_dir.join("example_pkg2-0.2.0-info");
+        fs::create_dir_all(&pkg2_dir).unwrap();
+        fs::write(pkg2_dir.join("top_level.txt"), "example_pkg2\n").unwrap();
 
-//         let used_imports = used_imports.unwrap();
-//         assert_eq!(used_imports.len(), 0);
+        // lets do another package like scikit_learn where we know the name will get remapped to sklearn
+        let pkg3_dir = site_packages_dir.join("scikit_learn-0.24.1-info");
+        fs::create_dir_all(&pkg3_dir).unwrap();
+        fs::write(pkg3_dir.join("top_level.txt"), "sklearn\n").unwrap();
 
-//         let file_path = te.config.base_directory.join("file1.py");
-//         let mut file = File::create(file_path).unwrap();
-//         file.write_all(r#"import pandas as pd"#.as_bytes()).unwrap();
+        let site_pkgs = SitePackages {
+            paths: vec![site_packages_dir],
+            venv: Some("test-venv".to_string()),
+        };
 
-//         let used_imports = get_imports(&te.config);
-//         assert!(used_imports.is_ok());
+        let installed_pkgs = get_installed_packages(site_pkgs).unwrap();
 
-//         let used_imports = used_imports.unwrap();
-//         assert_eq!(used_imports.len(), 1);
-//         assert!(used_imports.contains("pandas"));
-//         assert!(!used_imports.contains("sklearn"));
-//     }
+        assert_eq!(
+            installed_pkgs._mapping().len(),
+            3,
+            "Should have found two installed packages"
+        );
 
-//     // #[test]
-//     // fn correct_promt_from_get_prompt() {
-//     //     let venv = Some("test-venv".to_string());
-//     //     let prompt = get_prompt(&venv);
-//     //     assert_eq!(
-//     //         prompt,
-//     //         "Detected virtual environment: `test-venv`. Is this correct?"
-//     //     );
+        // Assert that the package names and import names are correct
+        assert!(
+            installed_pkgs._mapping().get("example-pkg1").is_some(),
+            "Should contain example_pkg1"
+        );
 
-//     //     let venv = None;
-//     //     let prompt = get_prompt(&venv);
-//     //     assert_eq!(
-//     //         prompt,
-//     //         "WARNING: No virtual environment detected. Results may be inaccurate. Continue?"
-//     //             .red()
-//     //             .to_string()
-//     //     );
-//     // }
+        assert!(
+            installed_pkgs
+                ._mapping()
+                .get("example-pkg1")
+                .unwrap()
+                .contains("example_pkg1"),
+            "example-pkg1 should contain example_pkg1"
+        );
+        assert!(
+            installed_pkgs._mapping().get("example-pkg2").is_some(),
+            "Should contain example_pkg2"
+        );
 
-//     // #[test]
-//     // fn get_site_package_dir_success() {
-//     //     let te = TestEnv::new(&["dir1", "dir2"], Some(&["pyproject.toml"]));
+        assert!(
+            installed_pkgs
+                ._mapping()
+                .get("example-pkg2")
+                .unwrap()
+                .contains("example_pkg2"),
+            "example-pkg2 should contain example_pkg2"
+        );
 
-//     //     let site_pkgs = get_site_package_dir(&te.config).unwrap();
+        assert!(
+            installed_pkgs._mapping().get("scikit-learn").is_some(),
+            "Should contain scikit_learn"
+        );
 
-//     //     assert!(!site_pkgs.paths.is_empty());
+        assert!(
+            installed_pkgs
+                ._mapping()
+                .get("scikit-learn")
+                .unwrap()
+                .contains("sklearn"),
+            "scikit_learn should contain sklearn"
+        );
+        // non-existent package
+        assert!(
+            !installed_pkgs._mapping().get("non-existent").is_some(),
+            "Should not contain non-existent"
+        );
+    }
 
-//     //     let venv_name = env::var("VIRTUAL_ENV")
-//     //         .ok()
-//     //         .and_then(|path| path.split('/').last().map(String::from));
-//     //     assert_eq!(site_pkgs.venv, venv_name);
-//     // }
+    // #[test]
+    // fn get_deps_from_pyproject_toml_success() {
+    //     let temp_dir =
+    //         create_working_directory(&["dir1", "dir2"], Some(&["pyproject.toml"])).unwrap();
+    //     let base_directory = temp_dir.path().join("dir1");
+    //     let file_path = base_directory.join("pyproject.toml");
+    //     let mut file = File::create(&file_path).unwrap();
+    //     file.write_all(
+    //         r#"
+    //         [tool.poetry.dependencies]
+    //         requests = "2.25.1"
+    //         python = "^3.8"
+    //         "#
+    //         .as_bytes(),
+    //     )
+    //     .unwrap();
 
-//     // #[test]
-
-//     // fn get_installed_packages_correctly_maps() {
-//     //     // Create a temporary environment resembling site-packages
-//     //     let temp_dir = tempfile::TempDir::new().unwrap();
-//     //     let site_packages_dir = temp_dir.path().join("site-packages");
-//     //     fs::create_dir(&site_packages_dir).unwrap();
-
-//     //     // Simulate a couple of installed packages with top_level.txt files
-//     //     let pkg1_dir = site_packages_dir.join("example_pkg1-0.1.0-info");
-//     //     fs::create_dir_all(&pkg1_dir).unwrap();
-//     //     fs::write(pkg1_dir.join("top_level.txt"), "example_pkg1\n").unwrap();
-
-//     //     let pkg2_dir = site_packages_dir.join("example_pkg2-0.2.0-info");
-//     //     fs::create_dir_all(&pkg2_dir).unwrap();
-//     //     fs::write(pkg2_dir.join("top_level.txt"), "example_pkg2\n").unwrap();
-
-//     //     // lets do another package like scikit_learn where we know the name will get remapped to sklearn
-//     //     let pkg3_dir = site_packages_dir.join("scikit_learn-0.24.1-info");
-//     //     fs::create_dir_all(&pkg3_dir).unwrap();
-//     //     fs::write(pkg3_dir.join("top_level.txt"), "sklearn\n").unwrap();
-
-//     //     let site_pkgs = SitePackages {
-//     //         paths: vec![site_packages_dir],
-//     //         venv: Some("test-venv".to_string()),
-//     //     };
-
-//     //     let installed_pkgs = get_installed_packages(site_pkgs).unwrap();
-
-//     //     assert_eq!(
-//     //         installed_pkgs._mapping().len(),
-//     //         3,
-//     //         "Should have found two installed packages"
-//     //     );
-
-//     //     // Assert that the package names and import names are correct
-//     //     assert!(
-//     //         installed_pkgs._mapping().get("example-pkg1").is_some(),
-//     //         "Should contain example_pkg1"
-//     //     );
-
-//     //     assert!(
-//     //         installed_pkgs
-//     //             ._mapping()
-//     //             .get("example-pkg1")
-//     //             .unwrap()
-//     //             .contains("example_pkg1"),
-//     //         "example-pkg1 should contain example_pkg1"
-//     //     );
-//     //     assert!(
-//     //         installed_pkgs._mapping().get("example-pkg2").is_some(),
-//     //         "Should contain example_pkg2"
-//     //     );
-
-//     //     assert!(
-//     //         installed_pkgs
-//     //             ._mapping()
-//     //             .get("example-pkg2")
-//     //             .unwrap()
-//     //             .contains("example_pkg2"),
-//     //         "example-pkg2 should contain example_pkg2"
-//     //     );
-
-//     //     assert!(
-//     //         installed_pkgs._mapping().get("scikit-learn").is_some(),
-//     //         "Should contain scikit_learn"
-//     //     );
-
-//     //     assert!(
-//     //         installed_pkgs
-//     //             ._mapping()
-//     //             .get("scikit-learn")
-//     //             .unwrap()
-//     //             .contains("sklearn"),
-//     //         "scikit_learn should contain sklearn"
-//     //     );
-//     //     // non-existent package
-//     //     assert!(
-//     //         !installed_pkgs._mapping().get("non-existent").is_some(),
-//     //         "Should not contain non-existent"
-//     //     );
-//     // }
-
-//     // #[test]
-//     // fn get_deps_from_pyproject_toml_success() {
-//     //     let temp_dir =
-//     //         create_working_directory(&["dir1", "dir2"], Some(&["pyproject.toml"])).unwrap();
-//     //     let base_directory = temp_dir.path().join("dir1");
-//     //     let file_path = base_directory.join("pyproject.toml");
-//     //     let mut file = File::create(&file_path).unwrap();
-//     //     file.write_all(
-//     //         r#"
-//     //         [tool.poetry.dependencies]
-//     //         requests = "2.25.1"
-//     //         python = "^3.8"
-//     //         "#
-//     //         .as_bytes(),
-//     //     )
-//     //     .unwrap();
-
-//     //     let packages = get_dependencies_from_pyproject_toml(&file_path).unwrap();
-//     //     assert_eq!(packages.len(), 2);
-//     //     assert!(packages.contains(&PyProjectDeps {
-//     //         name: "requests".to_string()
-//     //     }));
-//     //     assert!(packages.contains(&PyProjectDeps {
-//     //         name: "python".to_string()
-//     //     }));
-//     // }
-// }
+    //     let packages = get_dependencies_from_pyproject_toml(&file_path).unwrap();
+    //     assert_eq!(packages.len(), 2);
+    //     assert!(packages.contains(&PyProjectDeps {
+    //         name: "requests".to_string()
+    //     }));
+    //     assert!(packages.contains(&PyProjectDeps {
+    //         name: "python".to_string()
+    //     }));
+    // }
+}

@@ -1,7 +1,5 @@
 use clap::Parser;
 
-use crate::output::OutputKind;
-
 use anyhow::{anyhow, Result};
 use std::path::Path;
 
@@ -112,6 +110,14 @@ pub struct Config {
     /// The output format.
     /// Ex: `human` or `json`
     pub output: OutputKind,
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug)]
+pub enum OutputKind {
+    /// Human-readable output format.
+    Human,
+    /// JSON output format.
+    Json,
 }
 
 impl Config {

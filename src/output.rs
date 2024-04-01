@@ -16,13 +16,13 @@
 // use tabled::settings::Panel;
 // use tabled::{settings::Style, Table, Tabled};
 
-#[derive(clap::ValueEnum, Clone, Copy, Debug)]
-pub enum OutputKind {
-    /// Human-readable output format.
-    Human,
-    /// JSON output format.
-    Json,
-}
+// #[derive(clap::ValueEnum, Clone, Copy, Debug)]
+// pub enum OutputKind {
+//     /// Human-readable output format.
+//     Human,
+//     /// JSON output format.
+//     Json,
+// }
 
 // #[derive(Tabled)]
 // struct Record {
