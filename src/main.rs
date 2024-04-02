@@ -1,10 +1,8 @@
-mod analysis;
+mod analyze;
 mod cli;
 mod config;
-mod dependencies;
 mod exit_codes;
-mod imports;
-mod packages;
+mod runtime_assets;
 
 use std::env;
 use std::path::PathBuf;
@@ -12,8 +10,6 @@ use std::path::PathBuf;
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 
-// use crate::analysis::analyze;
-// use crate::analysis::analyze;
 use crate::cli::{Env, Opts};
 use crate::config::Config;
 use crate::exit_codes::ExitCode;
@@ -37,7 +33,7 @@ fn run() -> Result<ExitCode> {
 
     set_working_dir(&config)?;
 
-    analysis::scan(config)?;
+    analyze::scan(config)?;
 
     Ok(ExitCode::Success)
 

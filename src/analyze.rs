@@ -1,21 +1,20 @@
 use std::collections::HashSet;
-use std::str;
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
-use crate::dependencies::{get_dependencies, Dependency};
-use crate::exit_codes::*;
-use crate::imports::get_imports;
-use crate::packages::get_packages;
-use crate::packages::{get_site_packages, Package, PackageState};
+use crate::exit_codes::ExitCode;
+use crate::runtime_assets::get_imports;
+use crate::runtime_assets::get_packages;
+use crate::runtime_assets::{get_dependencies, Dependency};
+use crate::runtime_assets::{get_site_packages, Package, PackageState};
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-struct AnalysisElement {
-    package: Package,
-    dependency: Option<Dependency>,
+#[derive(Debug, PartialEq, Eq)]
+struct AnalysisElement<'a> {
+    package: &'a Package,
+    dependency: Option<&'a Dependency>,
 }
+
 struct ProjectAnalysis {
     config: Config,
     packages: HashSet<Package>,
@@ -38,7 +37,7 @@ impl ProjectAnalysis {
         }
     }
 
-    fn get_used(&self) -> Vec<AnalysisElement> {
+    fn get_used<'a>(&'a self) -> Vec<AnalysisElement<'a>> {
         self.dependencies
             .iter()
             .filter_map(|dep| {
@@ -46,14 +45,14 @@ impl ProjectAnalysis {
                     .iter()
                     .find(|pkg| pkg.id() == dep.id() && !pkg.aliases().is_disjoint(&self.imports))
                     .map(|pkg| AnalysisElement {
-                        package: pkg.clone(),
-                        dependency: Some(dep.clone()),
+                        package: pkg,
+                        dependency: Some(dep),
                     })
             })
             .collect()
     }
 
-    fn get_unused(&self) -> Vec<AnalysisElement> {
+    fn get_unused<'a>(&'a self) -> Vec<AnalysisElement<'a>> {
         self.dependencies
             .iter()
             .filter_map(|dep| {
@@ -61,14 +60,14 @@ impl ProjectAnalysis {
                     .iter()
                     .find(|pkg| pkg.id() == dep.id() && pkg.aliases().is_disjoint(&self.imports))
                     .map(|pkg| AnalysisElement {
-                        package: pkg.clone(),
-                        dependency: Some(dep.clone()),
+                        package: pkg,
+                        dependency: Some(dep),
                     })
             })
             .collect()
     }
 
-    fn get_untracked(&self) -> Vec<AnalysisElement> {
+    fn get_untracked<'a>(&'a self) -> Vec<AnalysisElement<'a>> {
         let dep_ids: HashSet<String> = self
             .dependencies
             .iter()
@@ -80,7 +79,7 @@ impl ProjectAnalysis {
             .filter_map(|pkg| {
                 if !pkg.aliases().is_disjoint(&self.imports) && !dep_ids.contains(pkg.id()) {
                     Some(AnalysisElement {
-                        package: pkg.clone(),
+                        package: pkg,
                         dependency: None,
                     })
                 } else {

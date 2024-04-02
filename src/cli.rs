@@ -2,7 +2,7 @@ use clap::Parser;
 
 use std::path::PathBuf;
 
-use crate::packages::PackageState;
+use crate::runtime_assets::PackageState;
 
 #[derive(Parser)]
 #[command(

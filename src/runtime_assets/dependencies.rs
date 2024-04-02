@@ -1,6 +1,5 @@
 extern crate bytesize;
 extern crate fs_extra;
-// extern crate test;
 
 use std::collections::HashSet;
 use std::fs;
