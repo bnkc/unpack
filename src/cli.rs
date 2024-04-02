@@ -66,8 +66,10 @@ pub struct Opts {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Env {
+    #[allow(dead_code)]
     Test,
     Dev,
+    #[allow(dead_code)]
     Prod,
 }
 
