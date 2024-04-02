@@ -1,12 +1,21 @@
-use anyhow::{bail, Context, Result};
-use clap::Parser;
+mod analysis;
+mod cli;
+mod config;
+mod dependencies;
+mod exit_codes;
+mod imports;
+mod packages;
+
 use std::env;
 
-use pip_udeps::{
-    analyze,
-    cli::{Config, Opts},
-    exit_codes::ExitCode,
-};
+use anyhow::{bail, Context, Result};
+use clap::Parser;
+
+// use crate::analysis::analyze;
+// use crate::analysis::analyze;
+use crate::cli::Opts;
+use crate::config::Config;
+use crate::exit_codes::ExitCode;
 
 fn main() {
     let result = run();
@@ -24,10 +33,14 @@ fn main() {
 fn run() -> Result<ExitCode> {
     let opts = Opts::parse();
     let config = Config::build(opts)?;
+
     set_working_dir(&config)?;
 
-    let analysis = analyze(config)?;
-    Ok(analysis)
+    analysis::scan(config)?;
+
+    Ok(ExitCode::Success)
+
+    // Ok(analysis)
 }
 
 fn set_working_dir(config: &Config) -> Result<()> {
