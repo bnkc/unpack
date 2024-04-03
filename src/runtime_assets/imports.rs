@@ -1,16 +1,12 @@
 use std::collections::HashSet;
 use std::fs;
-
 use std::path::PathBuf;
 use std::str;
 use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{Arc, Mutex};
-use std::thread;
+use std::sync::Arc;
 
 use anyhow::Result;
-
-use ignore::{self, WalkBuilder, WalkParallel, WalkState};
+use ignore::{WalkBuilder, WalkParallel, WalkState};
 use rustpython_ast::Visitor;
 use rustpython_parser::{ast, parse, Mode};
 
@@ -49,54 +45,12 @@ impl Visitor for Imports {
 
 fn build_walker(config: &Config) -> Result<WalkParallel> {
     let builder = WalkBuilder::new(&config.base_directory)
-        .hidden(config.ignore_hidden) // Configure visibility of hidden files
-        .filter_entry(|entry| {
-            // Directly filter for `.py` files
-            entry.path().extension().map_or(false, |ext| ext == "py")
-        })
+        .hidden(config.ignore_hidden)
+        .max_depth(config.max_depth)
+        .filter_entry(|entry| entry.path().extension().map_or(false, |ext| ext == "py"))
         .build_parallel(); // Builds the walker with parallelism support
 
-    // Optional: Add custom ignore patterns or files
-    // if let Some(excludes) = &config.excludes {
-    //     for exclude in excludes {
-    //         builder.add_ignore(exclude); // This method does not exist; you would need a custom implementation
-    //     }
-    // }
-
     Ok(builder)
-}
-
-/// Initiates the parallel processing of Python files to extract import statements.
-pub fn get_imports(config: &Config) -> Result<HashSet<String>> {
-    let walker = build_walker(config)?;
-    let (tx, rx) = mpsc::channel();
-    let tx = Arc::new(tx);
-
-    walker.run(move || {
-        let tx = Arc::clone(&tx);
-        Box::new(move |result| {
-            if let Ok(entry) = result {
-                // skip the root directory
-                if entry.depth() == 0 {
-                    return WalkState::Continue;
-                }
-
-                // Now assured to be a .py file, proceed to process.
-                let path = entry.path().to_owned();
-                let tx = tx.clone();
-                process_file(path, tx);
-            }
-            ignore::WalkState::Continue
-        })
-    });
-
-    // Collect all the import statements from the threads
-    let mut imports = HashSet::new();
-    for recieved in rx.iter() {
-        imports.extend(recieved);
-    }
-
-    Ok(imports)
 }
 
 /// Processes a single Python file to extract and send its import statements through a channel.
@@ -132,33 +86,34 @@ fn process_file(path: PathBuf, tx: Arc<mpsc::Sender<HashSet<String>>>) {
     }
 }
 
-// pub fn get_imports(config: &Config) -> Result<HashSet<String>> {
-//     WalkDir::new(&config.base_directory)
-//         .into_iter()
-//         .filter_map(|e| e.ok())
-//         .filter(|entry| {
-//             let file_name = entry.file_name().to_string_lossy();
+/// Initiates the parallel processing of Python files to extract import statements.
+pub fn get_imports(config: &Config) -> Result<HashSet<String>> {
+    let walker = build_walker(config)?;
+    let (tx, rx) = mpsc::channel();
+    let tx = Arc::new(tx);
 
-//             // Ignore hidden files and directories if `ignore_hidden` is set to true
-//             file_name.ends_with(".py") && !(config.ignore_hidden && file_name.starts_with("."))
-//         })
-//         .try_fold(HashSet::new(), |mut acc, entry| {
-//             let file_content = fs::read_to_string(entry.path())?;
-//             let module = parse(&file_content, Mode::Module, "<embedded>")?;
+    walker.run(move || {
+        let tx = Arc::clone(&tx);
+        Box::new(move |result| {
+            if let Ok(entry) = result {
+                // skip the root directory
+                if entry.depth() == 0 {
+                    return WalkState::Continue;
+                }
 
-//             let mut collector = Imports {
-//                 manifest: HashSet::new(),
-//             };
+                let path = entry.path().to_owned();
+                let tx = tx.clone();
+                process_file(path, tx);
+            }
+            ignore::WalkState::Continue
+        })
+    });
 
-//             module
-//                 .module()
-//                 .unwrap() //Probably should change this from unwrap to something else
-//                 .body
-//                 .into_iter()
-//                 .for_each(|node| collector.visit_stmt(node));
+    // Collect all the import statements from the threads
+    let mut imports = HashSet::new();
+    for recieved in rx.iter() {
+        imports.extend(recieved);
+    }
 
-//             acc.extend(collector.manifest);
-
-//             Ok(acc)
-//         })
-// }
+    Ok(imports)
+}
