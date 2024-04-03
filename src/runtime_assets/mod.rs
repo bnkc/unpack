@@ -1,6 +1,6 @@
 mod dependencies;
 mod imports;
-pub mod packages;
+mod packages;
 
 pub(crate) use dependencies::{get_dependencies, Dependency};
 pub(crate) use imports::get_imports;

@@ -23,7 +23,7 @@ struct ProjectAnalysis {
 }
 
 impl ProjectAnalysis {
-    pub fn new(
+    fn new(
         config: Config,
         packages: HashSet<Package>,
         dependencies: HashSet<Dependency>,
@@ -89,7 +89,7 @@ impl ProjectAnalysis {
             .collect()
     }
 
-    pub fn scan(&self) -> Vec<AnalysisElement> {
+    fn scan(&self) -> Vec<AnalysisElement> {
         match self.config.package_state {
             PackageState::Unused => self.get_unused(),
             PackageState::Untracked => self.get_untracked(),
