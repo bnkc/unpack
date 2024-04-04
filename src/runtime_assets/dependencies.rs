@@ -124,3 +124,103 @@ pub fn get_dependencies(path: &Path) -> Result<HashSet<Dependency>> {
 
     Ok(deps.manifest)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+
+    /// Helper function to create a temporary pyproject.toml file.
+    fn create_pyproject_toml_file(dir: &tempfile::TempDir, content: &str) -> PathBuf {
+        let file_path = dir.path().join("pyproject.toml");
+        let mut file = File::create(&file_path).expect("Failed to create file.");
+        writeln!(file, "{}", content).expect("Failed to write to file.");
+        file_path
+    }
+
+    /// Tests the basic functionality of DependencyBuilder and Dependency structs.
+    #[test]
+    fn dependency_builder_creates_dependency() {
+        let dep = DependencyBuilder::new("my_dep".to_string())
+            .version("1.0.0".to_string())
+            .category("dev".to_string())
+            .build();
+
+        assert_eq!(dep.id, "my_dep");
+        assert_eq!(dep.version, Some("1.0.0".to_string()));
+        assert_eq!(dep.category, Some("dev".to_string()));
+    }
+
+    /// Tests the parsing of simple dependencies from a pyproject.toml file.
+    #[test]
+    fn parse_simple_dependencies() {
+        let temp_dir = tempdir().unwrap();
+        let toml_path = create_pyproject_toml_file(
+            &temp_dir,
+            "
+            [tool.poetry.dependencies]
+            python = \"^3.8\"
+            crate_a = \"^1.0\"
+            crate_b = \"^2.0\"
+                        ",
+        );
+
+        let dependencies =
+            get_dependencies(toml_path.as_path()).expect("Failed to get dependencies");
+
+        assert!(dependencies.contains(&Dependency {
+            id: "crate_a".to_string(),
+            version: Some("^1.0".to_string()),
+            category: Some("tool.poetry.dependencies".to_string()),
+        }));
+        assert!(dependencies.contains(&Dependency {
+            id: "crate_b".to_string(),
+            version: Some("^2.0".to_string()),
+            category: Some("tool.poetry.dependencies".to_string()),
+        }));
+        // Including the Python version as a dependency for completeness.
+        assert!(dependencies.contains(&Dependency {
+            id: "python".to_string(),
+            version: Some("^3.8".to_string()),
+            category: Some("tool.poetry.dependencies".to_string()),
+        }));
+        assert_eq!(dependencies.len(), 3);
+
+        // Test different categories such as dev-dependencies, build-dependencies, etc.
+        let toml_path = create_pyproject_toml_file(
+            &temp_dir,
+            "
+            [tool.poetry.dev-dependencies]
+            crate_c = \"^3.0\"
+            crate_d = \"^4.0\"
+                        ",
+        );
+
+        let dependencies =
+            get_dependencies(toml_path.as_path()).expect("Failed to get dependencies");
+
+        assert!(dependencies.contains(&Dependency {
+            id: "crate_c".to_string(),
+            version: Some("^3.0".to_string()),
+            category: Some("tool.poetry.dev-dependencies".to_string()),
+        }));
+        assert!(dependencies.contains(&Dependency {
+            id: "crate_d".to_string(),
+            version: Some("^4.0".to_string()),
+            category: Some("tool.poetry.dev-dependencies".to_string()),
+        }));
+    }
+
+    /// Tests invalid TOML content.
+    #[test]
+    fn test_invalid_toml() {
+        let temp_dir = tempdir().unwrap();
+        let toml_path = create_pyproject_toml_file(&temp_dir, "invalid toml content");
+
+        let result = get_dependencies(toml_path.as_path());
+        assert!(result.is_err());
+    }
+}
