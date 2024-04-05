@@ -2,9 +2,9 @@ name: Rust
 
 on:
   push:
-    branches: ["main"]
+    branches: [main]
   pull_request:
-    branches: ["main"]
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,9 +20,9 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: nightly # Specify nightly toolchain here
+          toolchain: 1.76.0
           override: true
-          components: rustfmt, clippy # Optionally install additional components
+          default: true
 
       - name: Build
         run: cargo build --verbose
