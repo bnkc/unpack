@@ -7,8 +7,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use ignore::{WalkBuilder, WalkParallel, WalkState};
-use rustpython_ast::Visitor;
-use rustpython_parser::{ast, parse, Mode};
+use rustpython_parser::{ast, ast::Visitor, parse, Mode};
 
 use crate::config::Config;
 
