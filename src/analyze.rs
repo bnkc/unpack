@@ -113,13 +113,6 @@ pub fn scan(config: Config) -> Result<ExitCode> {
     outcome.elements = elements;
     outcome.success = outcome.elements.is_empty();
 
-    if !outcome.success {
-        let mut note = "".to_owned();
-        note += "Note: There might be false-positives.\n";
-        note += "      For example, `pip-udeps` cannot detect usage of packages that are not imported under `[tool.poetry.*]`.\n";
-        outcome.note = Some(note);
-    }
-
     outcome.print_report(&config, std::io::stdout())
 }
 #[cfg(test)]

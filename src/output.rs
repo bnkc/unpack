@@ -15,12 +15,11 @@ use crate::exit_codes::ExitCode;
 pub struct Outcome<'a> {
     pub success: bool,
     pub elements: Vec<AnalysisElement<'a>>,
-    pub note: Option<String>,
 }
 
 #[derive(Tabled)]
 struct Record<'r> {
-    name: &'r str,
+    package: &'r str,
     version: &'r str,
     size: String,
 }
@@ -42,18 +41,26 @@ impl<'a> Outcome<'a> {
 
     fn pretty_print(&self, stdout: &mut impl Write, config: &Config) -> Result<ExitCode> {
         if self.success {
-            writeln!(stdout, "No packages found.")?;
+            writeln!(
+                stdout,
+                "\n 📭 No {:?} packages found.",
+                config.package_state
+            )?;
             stdout.flush()?;
             return Ok(ExitCode::Success);
         }
 
-        writeln!(stdout, "\n{:?} Packages", config.package_state)?;
+        writeln!(stdout, "\n 📦 {:?} Packages", config.package_state)?;
+
+        // sort elements by size
+        let mut elements = self.elements.clone();
+        elements.sort_by_key(|el| el.package.size());
 
         let records: Vec<Record> = self
             .elements
             .iter()
             .map(|e| Record {
-                name: e.package.id(),
+                package: e.package.id(),
                 version: e.dependency.as_ref().map_or("N/A", |dep| dep.version()),
                 size: ByteSize::b(e.package.size()).to_string_as(true),
             })
@@ -61,11 +68,19 @@ impl<'a> Outcome<'a> {
 
         let mut table = Table::new(&records);
         table.with(Style::psql());
+
         writeln!(stdout, "\n{}", table)?;
 
-        if let Some(note) = &self.note {
-            writeln!(stdout, "\nNote: {}", note)?;
-        }
+        let total_size: u64 = self.elements.iter().map(|el| el.package.size()).sum();
+        let total_size = ByteSize::b(total_size).to_string_as(true);
+
+        let mut note = "".to_owned();
+        note += " 💽 Total disk space: ";
+        note += &total_size;
+        note += "\n\n Note: There might be false-positives.\n";
+        note += "      For example, `pip-udeps` cannot detect usage of packages that are not imported under `[tool.poetry.*]`.\n";
+
+        writeln!(stdout, "\n{}", note)?;
 
         stdout.flush()?;
         Ok(ExitCode::Success)

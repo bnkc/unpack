@@ -47,7 +47,13 @@ fn build_walker(config: &Config) -> Result<WalkParallel> {
     let builder = WalkBuilder::new(&config.base_directory)
         .hidden(config.ignore_hidden)
         .max_depth(config.max_depth)
-        .filter_entry(|entry| entry.path().extension().map_or(false, |ext| ext == "py"))
+        // .filter_entry(|entry| entry.path().extension().map_or(false, |ext| ext == "py"))
+        .filter_entry(|entry| {
+            // Always traverse directories to look for nested Python files.
+            entry.file_type().map_or(false, |ft| ft.is_dir()) ||
+            // Only consider files that have a `.py` extension.
+            entry.path().extension().map_or(false, |ext| ext == "py")
+        })
         .build_parallel(); // Builds the walker with parallelism support
 
     Ok(builder)
@@ -96,16 +102,19 @@ pub fn get_imports(config: &Config) -> Result<HashSet<String>> {
         let tx = Arc::clone(&tx);
         Box::new(move |result| {
             if let Ok(entry) = result {
-                // skip the root directory
                 if entry.depth() == 0 {
                     return WalkState::Continue;
                 }
 
                 let path = entry.path().to_owned();
+                if path.is_dir() {
+                    return WalkState::Continue;
+                }
+
                 let tx = tx.clone();
                 sender(path, tx);
             }
-            ignore::WalkState::Continue
+            WalkState::Continue
         })
     });
 
