@@ -630,7 +630,6 @@ dependencies = [
  "glob",
  "ignore",
  "log",
- "rustpython-ast",
  "rustpython-parser",
  "serde",
  "serde_json",
