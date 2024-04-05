@@ -21,6 +21,10 @@ impl Dependency {
     pub fn id(&self) -> &str {
         &self.id
     }
+
+    pub fn version(&self) -> Option<&String> {
+        self.version.as_ref()
+    }
 }
 
 pub struct DependencyBuilder {
@@ -108,7 +112,6 @@ impl Dependencies {
 }
 
 // This function reads a TOML file at the specified path and returns a HashSet of Dependency structs.
-// It uses the toml crate to parse the TOML content.
 pub fn get_dependencies(path: &Path) -> Result<HashSet<Dependency>> {
     let toml_str = fs::read_to_string(path)
         .with_context(|| format!("Failed to read TOML file at {:?}", path))?;
@@ -163,8 +166,8 @@ mod tests {
             "
             [tool.poetry.dependencies]
             python = \"^3.8\"
-            crate_a = \"^1.0\"
-            crate_b = \"^2.0\"
+            package_a = \"^1.0\"
+            package_b = \"^2.0\"
                         ",
         );
 
@@ -172,12 +175,12 @@ mod tests {
             get_dependencies(toml_path.as_path()).expect("Failed to get dependencies");
 
         assert!(dependencies.contains(&Dependency {
-            id: "crate_a".to_string(),
+            id: "package_a".to_string(),
             version: Some("^1.0".to_string()),
             category: Some("tool.poetry.dependencies".to_string()),
         }));
         assert!(dependencies.contains(&Dependency {
-            id: "crate_b".to_string(),
+            id: "package_b".to_string(),
             version: Some("^2.0".to_string()),
             category: Some("tool.poetry.dependencies".to_string()),
         }));
@@ -194,8 +197,8 @@ mod tests {
             &temp_dir,
             "
             [tool.poetry.dev-dependencies]
-            crate_c = \"^3.0\"
-            crate_d = \"^4.0\"
+            package_c = \"^3.0\"
+            package_d = \"^4.0\"
                         ",
         );
 
@@ -203,12 +206,12 @@ mod tests {
             get_dependencies(toml_path.as_path()).expect("Failed to get dependencies");
 
         assert!(dependencies.contains(&Dependency {
-            id: "crate_c".to_string(),
+            id: "package_c".to_string(),
             version: Some("^3.0".to_string()),
             category: Some("tool.poetry.dev-dependencies".to_string()),
         }));
         assert!(dependencies.contains(&Dependency {
-            id: "crate_d".to_string(),
+            id: "package_d".to_string(),
             version: Some("^4.0".to_string()),
             category: Some("tool.poetry.dev-dependencies".to_string()),
         }));

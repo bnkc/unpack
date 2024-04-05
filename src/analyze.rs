@@ -1,22 +1,23 @@
 use std::collections::HashSet;
 
 use anyhow::{Context, Result};
+use serde::Serialize;
 
 use crate::config::Config;
 use crate::exit_codes::ExitCode;
+use crate::output::Outcome;
 use crate::runtime_assets::get_imports;
 use crate::runtime_assets::get_packages;
 use crate::runtime_assets::{get_dependencies, Dependency};
 use crate::runtime_assets::{get_site_packages, Package, PackageState};
 
-#[derive(Debug, PartialEq, Eq)]
-struct AnalysisElement<'a> {
-    package: &'a Package,
-    dependency: Option<&'a Dependency>,
+#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
+pub struct AnalysisElement<'a> {
+    pub package: &'a Package,
+    pub dependency: Option<&'a Dependency>,
 }
 
 struct ProjectAnalysis {
-    config: Config,
     packages: HashSet<Package>,
     dependencies: HashSet<Dependency>,
     imports: HashSet<String>,
@@ -24,13 +25,11 @@ struct ProjectAnalysis {
 
 impl ProjectAnalysis {
     fn new(
-        config: Config,
         packages: HashSet<Package>,
         dependencies: HashSet<Dependency>,
         imports: HashSet<String>,
     ) -> Self {
         Self {
-            config,
             packages,
             dependencies,
             imports,
@@ -89,8 +88,8 @@ impl ProjectAnalysis {
             .collect()
     }
 
-    fn scan(&self) -> Vec<AnalysisElement> {
-        match self.config.package_state {
+    fn scan(&self, config: &Config) -> Vec<AnalysisElement> {
+        match config.package_state {
             PackageState::Unused => self.get_unused(),
             PackageState::Untracked => self.get_untracked(),
             PackageState::Used => self.get_used(),
@@ -99,6 +98,7 @@ impl ProjectAnalysis {
 }
 
 pub fn scan(config: Config) -> Result<ExitCode> {
+    let mut outcome = Outcome::default();
     let imports = get_imports(&config).context("Failed to get imports from the project.")?;
 
     let dependencies = get_dependencies(&config.dep_spec_file)
@@ -107,280 +107,204 @@ pub fn scan(config: Config) -> Result<ExitCode> {
     let site_packages = get_site_packages().context("Failed to get site packages.")?;
     let packages = get_packages(site_packages).context("Failed to get packages.")?;
 
-    let analysis = ProjectAnalysis::new(config, packages, dependencies, imports);
-    let scanned_packages = analysis.scan();
-    println!("{:#?}", scanned_packages);
+    let analysis = ProjectAnalysis::new(packages, dependencies, imports);
+    let elements = analysis.scan(&config);
+    // println!("{:#?}", elements);
 
-    Ok(ExitCode::Success)
+    outcome.elements = elements;
+    outcome.success = outcome.elements.is_empty();
+
+    if !outcome.success {
+        let mut note = "".to_owned();
+        note += "Note: There might be false-positives.\n";
+        note += "      For example, `pip-udeps` cannot detect usage of packages that are not imported under `[tool.poetry.*]`.\n";
+        outcome.note = Some(note);
+    }
+
+    outcome.print_report(&config, std::io::stdout())
 }
+#[cfg(test)]
+mod tests {
 
-// #[cfg(test)]
-// mod tests {
+    use super::*;
+    use crate::runtime_assets::{DependencyBuilder, PackageBuilder};
 
-//     use super::*;
+    /// Helper function to create a Package instance.
+    fn create_package(id: &str, aliases: &[&str]) -> Package {
+        let aliases = aliases.iter().map(|s| s.to_string()).collect();
+        PackageBuilder::new(id.to_string(), aliases, 0).build()
+    }
 
-//     use std::fs::File;
-//     use std::io::Write;
-//     use std::io::{self};
-//     use tempfile::TempDir;
-//     use test::Bencher;
+    // Helper function to create a Dependency instance.
+    fn create_dependency(id: &str) -> Dependency {
+        DependencyBuilder::new(id.to_string())
+            .version("1.0.0".to_string())
+            .category("dev".to_string())
+            .build()
+    }
 
-//     // Used to create a temporary directory with the given directories and files
-//     fn create_working_directory(
-//         dirs: &[&'static str],
-//         files: Option<&[&'static str]>,
-//     ) -> Result<TempDir, io::Error> {
-//         let temp_dir = TempDir::new()?;
+    #[test]
+    fn test_get_used() {
+        let pkg1 = create_package("pkg1", &["alias1"]);
+        let dep1 = create_dependency("pkg1");
+        let imports = HashSet::from(["alias1".to_string()]);
 
-//         dirs.iter().for_each(|directory| {
-//             let dir_path = temp_dir.path().join(directory);
-//             fs::create_dir_all(dir_path).unwrap();
-//         });
+        let analysis = ProjectAnalysis::new(
+            // config,
+            HashSet::from([pkg1]),
+            HashSet::from([dep1]),
+            imports,
+        );
 
-//         if let Some(files) = files {
-//             files.iter().for_each(|file| {
-//                 let file_path = temp_dir.path().join(file);
-//                 File::create(file_path).unwrap();
-//             });
-//         }
+        let used = analysis.get_used();
+        assert_eq!(used.len(), 1);
+        assert_eq!(used[0].package.id(), "pkg1");
+        assert_eq!(used[0].dependency.map(|d| d.id()), Some("pkg1"));
+    }
 
-//         Ok(temp_dir)
-//     }
+    #[test]
+    fn test_get_used_no_dependencies() {
+        let pkg1 = create_package("pkg1", &["alias1"]);
+        let imports = HashSet::from(["alias1".to_string()]);
 
-//     struct TestEnv {
-//         /// Temporary project directory
-//         _temp_dir: TempDir,
+        let analysis = ProjectAnalysis::new(HashSet::from([pkg1]), HashSet::new(), imports);
 
-//         /// Test Configuration struct
-//         config: Config,
-//     }
+        let used = analysis.get_used();
+        assert!(
+            used.is_empty(),
+            "No packages should be considered used as there are no dependencies."
+        );
+    }
 
-//     impl TestEnv {
-//         fn new(dirs: &[&'static str], files: Option<&[&'static str]>) -> Self {
-//             let temp_dir = create_working_directory(dirs, files).unwrap();
-//             let base_directory = temp_dir.path().join(dirs[0]);
-//             let pyproject_path: PathBuf = base_directory.join("pyproject.toml");
-//             let mut file = File::create(&pyproject_path).unwrap();
+    #[test]
+    fn test_get_unused_no_packages() {
+        let dep1 = create_dependency("pkg1");
+        let imports = HashSet::new();
 
-//             file.write_all(
-//                 r#"
-//                             [tool.poetry.dependencies]
-//                             requests = "2.25.1"
-//                             python = "^3.8"
-//                             pandas = "^1.2.0"
-//                             "#
-//                 .as_bytes(),
-//             )
-//             .unwrap();
+        let analysis = ProjectAnalysis::new(HashSet::new(), HashSet::from([dep1]), imports);
 
-//             let config = Config {
-//                 base_directory,
-//                 dep_spec_file: pyproject_path,
-//                 ignore_hidden: false,
-//                 env: Env::Test,
-//                 output: OutputKind::Human,
-//                 package_state: PackageState::Unused,
-//             };
+        let unused = analysis.get_unused();
+        assert!(
+            unused.is_empty(),
+            "No packages should be considered unused as there are no packages."
+        );
+    }
 
-//             Self {
-//                 _temp_dir: temp_dir,
-//                 config,
-//             }
-//         }
-//     }
+    #[test]
+    fn test_multiple_dependencies_and_packages() {
+        let pkg1 = create_package("pkg1", &["alias1"]);
+        let pkg2 = create_package("pkg2", &["alias2", "alias3"]);
+        let dep1 = create_dependency("pkg1");
+        let dep2 = create_dependency("pkg2");
+        let imports = HashSet::from(["alias1".to_string(), "alias3".to_string()]);
 
-//     #[bench]
-//     fn bench_get_used_imports(b: &mut Bencher) {
-//         let te = TestEnv::new(&["dir1", "dir2"], Some(&["file1.py"]));
-//         b.iter(|| get_imports(&te.config));
-//     }
+        let analysis = ProjectAnalysis::new(
+            HashSet::from([pkg1, pkg2]),
+            HashSet::from([dep1, dep2]),
+            imports,
+        );
 
-//     #[bench]
-//     fn bench_get_dependencies(b: &mut Bencher) {
-//         let te = TestEnv::new(&["dir1", "dir2"], Some(&["pyproject.toml"]));
-//         b.iter(|| get_dependencies(&te.config.dep_spec_file));
-//     }
+        let used = analysis.get_used();
+        assert_eq!(used.len(), 2, "Should identify both packages as used");
+        let pkg_ids: Vec<&str> = used.iter().map(|el| el.package.id()).collect();
+        assert!(pkg_ids.contains(&"pkg1"));
+        assert!(pkg_ids.contains(&"pkg2"));
+    }
 
-//     #[test]
-//     fn stem_import_correctly_stems() {
-//         let first_part = stem_import("os.path");
-//         assert_eq!(first_part.as_str(), "os");
+    #[test]
+    fn test_get_unused() {
+        let pkg1 = create_package("pkg1", &["alias1"]);
+        let dep1 = create_dependency("pkg1");
+        let imports = HashSet::new(); // No imports, so pkg1 should be unused.
 
-//         let first_part = stem_import("os");
-//         assert_eq!(first_part.as_str(), "os");
+        let analysis = ProjectAnalysis::new(HashSet::from([pkg1]), HashSet::from([dep1]), imports);
 
-//         let first_part = stem_import("");
-//         assert_eq!(first_part.as_str(), "");
-//     }
+        let unused = analysis.get_unused();
+        assert_eq!(unused.len(), 1);
+        assert_eq!(unused[0].package.id(), "pkg1");
+        assert_eq!(unused[0].dependency.map(|d| d.id()), Some("pkg1"));
+    }
 
-//     #[test]
-//     fn get_imports_correctly_collects() {
-//         let te = TestEnv::new(
-//             &["dir1", "dir2"],
-//             Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
-//         );
+    #[test]
+    fn test_get_untracked() {
+        let pkg1 = create_package("pkg1", &["alias1"]);
+        let imports = HashSet::from(["alias1".to_string()]);
 
-//         let used_imports = get_imports(&te.config);
-//         assert!(used_imports.is_ok());
+        let analysis = ProjectAnalysis::new(
+            HashSet::from([pkg1]),
+            HashSet::new(), // No dependencies, so pkg1 should be untracked.
+            imports,
+        );
 
-//         let used_imports = used_imports.unwrap();
-//         assert_eq!(used_imports.len(), 0);
+        let untracked = analysis.get_untracked();
+        assert_eq!(untracked.len(), 1);
+        assert_eq!(untracked[0].package.id(), "pkg1");
+        assert!(untracked[0].dependency.is_none());
+    }
 
-//         let file_path = te.config.base_directory.join("file1.py");
-//         let mut file = File::create(file_path).unwrap();
-//         file.write_all(r#"import pandas as pd"#.as_bytes()).unwrap();
+    #[test]
+    fn test_get_untracked_no_aliases_imported() {
+        let pkg1 = create_package("pkg1", &["alias1"]);
+        let imports = HashSet::from(["unrelated_alias".to_string()]);
 
-//         let used_imports = get_imports(&te.config);
-//         assert!(used_imports.is_ok());
+        let analysis = ProjectAnalysis::new(HashSet::from([pkg1]), HashSet::new(), imports);
 
-//         let used_imports = used_imports.unwrap();
-//         assert_eq!(used_imports.len(), 1);
-//         assert!(used_imports.contains("pandas"));
-//         assert!(!used_imports.contains("sklearn"));
-//     }
+        let untracked = analysis.get_untracked();
+        assert!(
+            untracked.is_empty(),
+            "No packages should be untracked as their aliases are not imported."
+        );
+    }
 
-//     #[test]
-//     fn get_site_package_dir_success() {
-//         let site_pkgs = get_site_packages().unwrap();
+    #[test]
+    fn test_packages_with_no_corresponding_dependency() {
+        let pkg1 = create_package("pkg1", &["alias1"]);
+        let pkg2 = create_package("pkg2", &["alias2"]); // This package does not have a corresponding dependency.
+        let dep1 = create_dependency("pkg1");
+        let imports = HashSet::from(["alias2".to_string()]);
 
-//         assert_eq!(site_pkgs.paths.len(), 1);
-//     }
+        let analysis =
+            ProjectAnalysis::new(HashSet::from([pkg1, pkg2]), HashSet::from([dep1]), imports);
 
-//     #[test]
-//     fn get_installed_packages() {
-//         // THIS IS BECAUSE YOU ARE A FUCKING IDIOT THAT USES THE METADATA AND THE RECORD
-//         // NOW
+        let untracked = analysis.get_untracked();
+        assert_eq!(
+            untracked.len(),
+            1,
+            "Only pkg2 should be identified as untracked"
+        );
+        assert_eq!(untracked[0].package.id(), "pkg2");
+    }
+    #[test]
+    fn test_case_sensitivity() {
+        let pkg1 = create_package("PKG1", &["Alias1"]);
+        let dep1 = create_dependency("pkg1"); // Different case from the package ID.
+        let imports = HashSet::from(["alias1".to_string()]); // Different case from the alias.
 
-//         // Create a temporary environment resembling site-packages
-//         let temp_dir = tempfile::TempDir::new().unwrap();
-//         let site_packages_dir = temp_dir.path().join("site-packages");
-//         fs::create_dir(&site_packages_dir).unwrap();
+        let analysis = ProjectAnalysis::new(HashSet::from([pkg1]), HashSet::from([dep1]), imports);
 
-//         // Simulate a couple of installed packages with top_level.txt files
-//         let pkg1_dir = site_packages_dir.join("example_pkg1-0.1.0-info");
-//         fs::create_dir_all(&pkg1_dir).unwrap();
-//         fs::write(pkg1_dir.join("top_level.txt"), "example_pkg1\n").unwrap();
+        let used = analysis.get_used();
+        assert!(used.is_empty(), "Case differences should prevent matching");
+    }
 
-//         let pkg2_dir = site_packages_dir.join("example_pkg2-0.2.0-info");
-//         fs::create_dir_all(&pkg2_dir).unwrap();
-//         fs::write(pkg2_dir.join("top_level.txt"), "example_pkg2\n").unwrap();
+    #[test]
+    fn test_overlapping_dependencies_and_imports() {
+        let pkg1 = create_package("pkg1", &["alias1", "alias2"]);
+        let pkg2 = create_package("pkg2", &["alias2"]);
+        let dep1 = create_dependency("pkg1");
+        let dep2 = create_dependency("pkg2");
+        let imports = HashSet::from(["alias2".to_string()]);
 
-//         // lets do another package like scikit_learn where we know the name will get remapped to sklearn
-//         let pkg3_dir = site_packages_dir.join("scikit_learn-0.24.1-info");
-//         fs::create_dir_all(&pkg3_dir).unwrap();
-//         fs::write(pkg3_dir.join("top_level.txt"), "sklearn\n").unwrap();
+        let analysis = ProjectAnalysis::new(
+            HashSet::from([pkg1, pkg2]),
+            HashSet::from([dep1, dep2]),
+            imports,
+        );
 
-//         // let te = TestEnv::new(
-//         //     &["dir1", "dir2"],
-//         //     Some(&["requirements.txt", "pyproject.toml", "file1.py"]),
-//         // );
-
-//         let dirs: HashSet<PathBuf> = vec![site_packages_dir].into_iter().collect();
-
-//         let site_pkgs = SitePackages { paths: dirs };
-
-//         // let installed_pkgs = get_installed_packages(site_pkgs).unwrap();
-//         let mut packages = Packages::default();
-//         packages.load(site_pkgs).unwrap();
-
-//         assert_eq!(packages.manifest.len(), 3);
-
-//         // let imports = get_impos
-
-//         // let dependencies = get_dependencies(&te.config.dep_spec_file).unwrap();
-
-//         // let installed_packages = packages.scan(&te.config, &dependencies, &imports);
-
-//         // assert_eq!(installed_packages.len(), 3);
-//         // assert!(installed_packages.contains(
-//         //     &PackageBuilder::new(
-//         //         "example_pkg1".to_string(),
-//         //         HashSet::from_iter(vec!["example_pkg1".to_string()]),
-//         //         0
-//         //     )
-//         //     .build()
-//         // ));
-
-//         // // Assert that the correct number of packages were found
-
-//         // assert_eq!(
-//         //     installed_pkgs._mapping().len(),
-//         //     3,
-//         //     "Should have found two installed packages"
-//         // );
-
-//         // // Assert that the package names and import names are correct
-//         // assert!(
-//         //     installed_pkgs._mapping().get("example-pkg1").is_some(),
-//         //     "Should contain example_pkg1"
-//         // );
-
-//         // assert!(
-//         //     installed_pkgs
-//         //         ._mapping()
-//         //         .get("example-pkg1")
-//         //         .unwrap()
-//         //         .contains("example_pkg1"),
-//         //     "example-pkg1 should contain example_pkg1"
-//         // );
-//         // assert!(
-//         //     installed_pkgs._mapping().get("example-pkg2").is_some(),
-//         //     "Should contain example_pkg2"
-//         // );
-
-//         // assert!(
-//         //     installed_pkgs
-//         //         ._mapping()
-//         //         .get("example-pkg2")
-//         //         .unwrap()
-//         //         .contains("example_pkg2"),
-//         //     "example-pkg2 should contain example_pkg2"
-//         // );
-
-//         // assert!(
-//         //     installed_pkgs._mapping().get("scikit-learn").is_some(),
-//         //     "Should contain scikit_learn"
-//         // );
-
-//         // assert!(
-//         //     installed_pkgs
-//         //         ._mapping()
-//         //         .get("scikit-learn")
-//         //         .unwrap()
-//         //         .contains("sklearn"),
-//         //     "scikit_learn should contain sklearn"
-//         // );
-//         // // non-existent package
-//         // assert!(
-//         //     !installed_pkgs._mapping().get("non-existent").is_some(),
-//         //     "Should not contain non-existent"
-//         // );
-//     }
-
-//     // #[test]
-//     // fn get_deps_from_pyproject_toml_success() {
-//     //     let temp_dir =
-//     //         create_working_directory(&["dir1", "dir2"], Some(&["pyproject.toml"])).unwrap();
-//     //     let base_directory = temp_dir.path().join("dir1");
-//     //     let file_path = base_directory.join("pyproject.toml");
-//     //     let mut file = File::create(&file_path).unwrap();
-//     //     file.write_all(
-//     //         r#"
-//     //         [tool.poetry.dependencies]
-//     //         requests = "2.25.1"
-//     //         python = "^3.8"
-//     //         "#
-//     //         .as_bytes(),
-//     //     )
-//     //     .unwrap();
-
-//     //     let packages = get_dependencies_from_pyproject_toml(&file_path).unwrap();
-//     //     assert_eq!(packages.len(), 2);
-//     //     assert!(packages.contains(&PyProjectDeps {
-//     //         name: "requests".to_string()
-//     //     }));
-//     //     assert!(packages.contains(&PyProjectDeps {
-//     //         name: "python".to_string()
-//     //     }));
-//     // }
-// }
+        let used = analysis.get_used();
+        assert_eq!(
+            used.len(),
+            2,
+            "Both pkg1 and pkg2 should be considered used as alias2 is imported by both."
+        );
+    }
+}

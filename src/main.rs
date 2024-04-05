@@ -2,6 +2,7 @@ mod analyze;
 mod cli;
 mod config;
 mod exit_codes;
+mod output;
 mod runtime_assets;
 
 use std::env;
