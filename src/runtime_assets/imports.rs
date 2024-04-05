@@ -19,11 +19,11 @@ fn stem_import(import: &str) -> String {
     import.split('.').next().unwrap_or_default().into()
 }
 /// Collects all the dependencies from the AST
-struct Imports {
-    manifest: HashSet<String>,
+struct ImportCollector {
+    imports: HashSet<String>,
 }
 
-impl Visitor for Imports {
+impl Visitor for ImportCollector {
     /// This is a generic visit method that will be called for all nodes
     fn visit_stmt(&mut self, node: ast::Stmt<ast::text_size::TextRange>) {
         self.generic_visit_stmt(node);
@@ -31,14 +31,14 @@ impl Visitor for Imports {
     /// This method is `overridden` to collect the dependencies into `self.deps`
     fn visit_stmt_import(&mut self, node: ast::StmtImport) {
         node.names.iter().for_each(|alias| {
-            self.manifest.insert(stem_import(&alias.name));
+            self.imports.insert(stem_import(&alias.name));
         })
     }
 
     /// This method is `overridden` to collect the dependencies into `self.deps`
     fn visit_stmt_import_from(&mut self, node: ast::StmtImportFrom) {
         if let Some(module) = &node.module {
-            self.manifest.insert(stem_import(module));
+            self.imports.insert(stem_import(module));
         }
     }
 }
@@ -71,8 +71,8 @@ fn sender(path: PathBuf, tx: Arc<mpsc::Sender<HashSet<String>>>) {
         }
     };
 
-    let mut collector = Imports {
-        manifest: HashSet::new(),
+    let mut collector = ImportCollector {
+        imports: HashSet::new(),
     };
     ast.module()
         .unwrap()
@@ -81,7 +81,7 @@ fn sender(path: PathBuf, tx: Arc<mpsc::Sender<HashSet<String>>>) {
         .for_each(|node| collector.visit_stmt(node));
 
     // Attempt to send collected imports, log any failure to do so.
-    if tx.send(collector.manifest).is_err() {
+    if tx.send(collector.imports).is_err() {
         eprintln!("Failed to send data for file {:?}", path);
     }
 }

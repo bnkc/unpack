@@ -54,6 +54,10 @@ impl Package {
     pub fn aliases(&self) -> &HashSet<String> {
         &self.aliases
     }
+
+    pub fn size(&self) -> u64 {
+        self.size
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]

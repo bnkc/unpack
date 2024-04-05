@@ -35,11 +35,7 @@ fn run() -> Result<ExitCode> {
 
     set_working_dir(&config)?;
 
-    analyze::scan(config)?;
-
-    Ok(ExitCode::Success)
-
-    // Ok(analysis)
+    analyze::scan(config)
 }
 
 fn construct_config(opts: Opts) -> Result<Config> {

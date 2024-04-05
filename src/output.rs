@@ -1,7 +1,10 @@
 use std::io::Write;
 
 use anyhow::Result;
+use bytesize::ByteSize;
 use serde::Serialize;
+
+use tabled::{settings::Style, Table, Tabled};
 
 use crate::analyze::AnalysisElement;
 use crate::cli::OutputKind;
@@ -15,10 +18,17 @@ pub struct Outcome<'a> {
     pub note: Option<String>,
 }
 
+#[derive(Tabled)]
+struct Record<'r> {
+    name: &'r str,
+    version: &'r str,
+    size: String,
+}
+
 impl<'a> Outcome<'a> {
     pub fn print_report(&self, config: &Config, mut stdout: impl Write) -> Result<ExitCode> {
         match config.output {
-            OutputKind::Human => self.pretty_print(&mut stdout, config),
+            OutputKind::Human => self.pretty_print(&mut stdout, &config),
             OutputKind::Json => self.json_print(&mut stdout),
         }
     }
@@ -31,24 +41,27 @@ impl<'a> Outcome<'a> {
     }
 
     fn pretty_print(&self, stdout: &mut impl Write, config: &Config) -> Result<ExitCode> {
-        writeln!(stdout, "Analysis Outcome:\n")?;
-        if self.elements.is_empty() {
-            writeln!(
-                stdout,
-                "No relevant packages found for the selected criteria."
-            )?;
-        } else {
-            writeln!(stdout, "{:?} Packages:", config.package_state)?;
-            for element in &self.elements {
-                let dep_note = if let Some(dep) = element.dependency {
-                    format!("(dependency: {}, version: {:?})", dep.id(), dep.version())
-                } else {
-                    "Untracked".to_string()
-                };
-
-                writeln!(stdout, "- {} {}", element.package.id(), dep_note)?;
-            }
+        if self.success {
+            writeln!(stdout, "No packages found.")?;
+            stdout.flush()?;
+            return Ok(ExitCode::Success);
         }
+
+        writeln!(stdout, "\n{:?} Packages", config.package_state)?;
+
+        let records: Vec<Record> = self
+            .elements
+            .iter()
+            .map(|e| Record {
+                name: e.package.id(),
+                version: e.dependency.as_ref().map_or("N/A", |dep| dep.version()),
+                size: ByteSize::b(e.package.size()).to_string_as(true),
+            })
+            .collect();
+
+        let mut table = Table::new(&records);
+        table.with(Style::psql());
+        writeln!(stdout, "\n{}", table)?;
 
         if let Some(note) = &self.note {
             writeln!(stdout, "\nNote: {}", note)?;

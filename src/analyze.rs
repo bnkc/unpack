@@ -109,7 +109,6 @@ pub fn scan(config: Config) -> Result<ExitCode> {
 
     let analysis = ProjectAnalysis::new(packages, dependencies, imports);
     let elements = analysis.scan(&config);
-    // println!("{:#?}", elements);
 
     outcome.elements = elements;
     outcome.success = outcome.elements.is_empty();
@@ -139,7 +138,6 @@ mod tests {
     fn create_dependency(id: &str) -> Dependency {
         DependencyBuilder::new(id.to_string())
             .version("1.0.0".to_string())
-            .category("dev".to_string())
             .build()
     }
 
