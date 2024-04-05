@@ -2,6 +2,7 @@ mod analyze;
 mod cli;
 mod config;
 mod exit_codes;
+mod output;
 mod runtime_assets;
 
 use std::env;
@@ -29,26 +30,25 @@ fn main() {
 
 fn run() -> Result<ExitCode> {
     let opts = Opts::parse();
+
     let config = construct_config(opts)?;
 
     set_working_dir(&config)?;
 
-    analyze::scan(config)?;
-
-    Ok(ExitCode::Success)
-
-    // Ok(analysis)
+    analyze::scan(config)
 }
 
 fn construct_config(opts: Opts) -> Result<Config> {
-    let base_directory = opts.base_directory;
+    let base_directory = &opts.base_directory;
     let dep_spec_file = get_dependency_specification_file(&base_directory)?;
     let ignore_hidden = opts.ignore_hidden;
     let output = opts.output;
+    let max_depth = opts.max_depth();
     Ok(Config {
-        base_directory,
+        base_directory: base_directory.to_owned(),
         dep_spec_file,
         ignore_hidden,
+        max_depth,
         env: Env::Dev,
         output,
         package_state: opts.dependency_status,

@@ -18,6 +18,12 @@ pub struct Config {
     /// Whether to ignore hidden files and directories (or not).
     pub ignore_hidden: bool,
 
+    /// The maximum search depth, or `None` if no maximum search depth should be set.
+    ///
+    /// A depth of `1` includes all files under the current directory, a depth of `2` also includes
+    /// all files under subdirectories of the current directory, etc.
+    pub max_depth: Option<usize>,
+
     /// The environment to run in.
     pub env: Env,
 

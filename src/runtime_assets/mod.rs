@@ -1,7 +1,9 @@
 mod dependencies;
 mod imports;
-pub mod packages;
+mod packages;
 
-pub(crate) use dependencies::{get_dependencies, Dependency};
+#[allow(unused_imports)]
+pub(crate) use dependencies::{get_dependencies, Dependency, DependencyBuilder};
 pub(crate) use imports::get_imports;
-pub(crate) use packages::{get_packages, get_site_packages, Package, PackageState};
+#[allow(unused_imports)]
+pub(crate) use packages::{get_packages, get_site_packages, Package, PackageBuilder, PackageState};

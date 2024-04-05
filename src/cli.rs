@@ -31,7 +31,7 @@ pub struct Opts {
     /// Select the dependency status to search for.
     #[arg(
         long,
-        short = 'd',
+        short = 's',
         value_name("STATUS"),
         default_value("unused"),
         value_enum
@@ -50,6 +50,18 @@ pub struct Opts {
     )]
     pub ignore_hidden: bool,
 
+    /// Limit the directory traversal to a given depth. By default, there is no
+    /// limit on the search depth.
+    #[arg(
+        long,
+        short = 'd',
+        value_name = "depth",
+        alias("maxdepth"),
+        help = "Set maximum search depth (default: none)",
+        long_help
+    )]
+    max_depth: Option<usize>,
+
     /// The output format to use allows for the selection of the output format
     /// for the results of the unused dependencies search. The default output
     /// format is `human`. The `json` format is also available.
@@ -62,6 +74,12 @@ pub struct Opts {
         long_help
     )]
     pub output: OutputKind,
+}
+
+impl Opts {
+    pub fn max_depth(&self) -> Option<usize> {
+        self.max_depth
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
