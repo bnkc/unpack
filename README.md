@@ -1,6 +1,6 @@
 <img src="https://github.com/bnkc/pyprune/blob/main/prune.svg?sanitize=true" alt="Logos logo" width="250" align="right">
 
-# Logos
+# PyPrune
 
 [![CI](https://github.com/bnkc/pyprune/actions/workflows/ci.yml/badge.svg)](https://github.com/bnkc/pyprune/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
