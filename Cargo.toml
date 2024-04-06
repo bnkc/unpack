@@ -21,6 +21,7 @@ fs_extra = "1.3.0"
 bytesize = "1.3.0"
 toml_edit = "0.22.9"
 ignore = "0.4.22"
+rustpython-ast = { version = "0.3.0", features = ["visitor"] }
 
 
 [dependencies.clap]

@@ -1,7 +1,6 @@
 mod dependencies;
 mod imports;
 mod packages;
-mod visitor;
 
 #[allow(unused_imports)]
 pub(crate) use dependencies::{get_dependencies, Dependency, DependencyBuilder};
