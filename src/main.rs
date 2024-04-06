@@ -6,7 +6,7 @@ mod output;
 mod runtime_assets;
 
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
@@ -40,7 +40,7 @@ fn run() -> Result<ExitCode> {
 
 fn construct_config(opts: Opts) -> Result<Config> {
     let base_directory = &opts.base_directory;
-    let dep_spec_file = get_dependency_specification_file(&base_directory)?;
+    let dep_spec_file = get_dependency_specification_file(base_directory)?;
     let ignore_hidden = opts.ignore_hidden;
     let output = opts.output;
     let max_depth = opts.max_depth();
@@ -57,7 +57,7 @@ fn construct_config(opts: Opts) -> Result<Config> {
 
 const DEP_SPEC_FILES: [&str; 2] = ["requirements.txt", "pyproject.toml"];
 
-pub fn get_dependency_specification_file(base_dir: &PathBuf) -> Result<PathBuf> {
+pub fn get_dependency_specification_file(base_dir: &Path) -> Result<PathBuf> {
     let file = base_dir.ancestors().find_map(|dir| {
         DEP_SPEC_FILES
             .into_iter()

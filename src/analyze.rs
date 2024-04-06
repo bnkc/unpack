@@ -36,7 +36,7 @@ impl ProjectAnalysis {
         }
     }
 
-    fn get_used<'a>(&'a self) -> Vec<AnalysisElement<'a>> {
+    fn get_used(&self) -> Vec<AnalysisElement<'_>> {
         self.dependencies
             .iter()
             .filter_map(|dep| {
@@ -51,7 +51,7 @@ impl ProjectAnalysis {
             .collect()
     }
 
-    fn get_unused<'a>(&'a self) -> Vec<AnalysisElement<'a>> {
+    fn get_unused(&self) -> Vec<AnalysisElement<'_>> {
         self.dependencies
             .iter()
             .filter_map(|dep| {
@@ -66,7 +66,7 @@ impl ProjectAnalysis {
             .collect()
     }
 
-    fn get_untracked<'a>(&'a self) -> Vec<AnalysisElement<'a>> {
+    fn get_untracked(&self) -> Vec<AnalysisElement<'_>> {
         let dep_ids: HashSet<String> = self
             .dependencies
             .iter()

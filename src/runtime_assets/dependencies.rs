@@ -56,17 +56,15 @@ struct DependencyCollector {
 
 impl DependencyCollector {
     fn visit_table(&mut self, key: &str, table: &toml::value::Table) {
-        // If the key contains "dependencies", then we are in the right place
+        // If the key contains "dependencies", then we are looking at a dependency table.
         if key.contains("dependencies") {
             for (dep_name, dep_value) in table {
                 self.visit_value(dep_name, dep_value);
             }
         } else {
             for (k, v) in table {
-                match v {
-                    toml::Value::Table(t) => self.visit_table(k, t),
-                    // Skip non-table values or keys not containing "dependencies"
-                    _ => (),
+                if let toml::Value::Table(t) = v {
+                    self.visit_table(k, t);
                 }
             }
         }

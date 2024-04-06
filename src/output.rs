@@ -27,7 +27,7 @@ struct Record<'r> {
 impl<'a> Outcome<'a> {
     pub fn print_report(&self, config: &Config, mut stdout: impl Write) -> Result<ExitCode> {
         match config.output {
-            OutputKind::Human => self.pretty_print(&mut stdout, &config),
+            OutputKind::Human => self.pretty_print(&mut stdout, config),
             OutputKind::Json => self.json_print(&mut stdout),
         }
     }
@@ -66,7 +66,7 @@ impl<'a> Outcome<'a> {
             })
             .collect();
 
-        let mut table = Table::new(&records);
+        let mut table = Table::new(records);
         table.with(Style::psql());
 
         writeln!(stdout, "\n{}", table)?;

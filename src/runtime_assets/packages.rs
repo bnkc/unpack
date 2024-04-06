@@ -73,7 +73,7 @@ impl PackageBuilder {
     }
 
     pub fn build(mut self) -> Package {
-        self.id = self.id.replace("_", "-");
+        self.id = self.id.replace('_', "-");
         Package {
             id: self.id,
             size: self.size,
@@ -174,7 +174,7 @@ pub fn get_packages(site_packages: HashSet<PathBuf>) -> Result<HashSet<Package>>
             let size = aliases
                 .iter()
                 .map(|alias| path.join(alias))
-                .map(|potential_path| get_size(&potential_path).unwrap_or(0))
+                .map(|potential_path| get_size(potential_path).unwrap_or(0))
                 .sum();
             let package = PackageBuilder::new(pkg_id, aliases, size).build();
             packages.insert(package);
