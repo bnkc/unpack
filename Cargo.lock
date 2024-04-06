@@ -620,28 +620,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pip-udeps"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytesize",
- "clap",
- "fs_extra",
- "glob",
- "ignore",
- "log",
- "rustpython-ast",
- "rustpython-parser",
- "serde",
- "serde_json",
- "tabled",
- "tempfile",
- "toml",
- "toml_edit",
- "walkdir",
-]
-
-[[package]]
 name = "pmutil"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -689,6 +667,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e835ff2298f5721608eb1a980ecaee1aef2c132bf95ecc026a11b7bf3c01c02e"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "pyprune"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytesize",
+ "clap",
+ "fs_extra",
+ "glob",
+ "ignore",
+ "log",
+ "rustpython-ast",
+ "rustpython-parser",
+ "serde",
+ "serde_json",
+ "tabled",
+ "tempfile",
+ "toml",
+ "toml_edit",
+ "walkdir",
 ]
 
 [[package]]

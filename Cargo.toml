@@ -1,10 +1,18 @@
 [package]
-name = "pip-udeps"
+name = "pyprune"
 version = "0.1.0"
 authors = ["Lev Ostatnigrosh <levostatnigrosh@pm.me>"]
-description = "Find unused dependencies in a Python project"
+homepage = "https://github.com/bnkc/pyprune"
+keywords = ["python", "prune", "dependency", "tool"]
+description = "pyprune is a simple, fast and user-friendly tool to analyze python packaging."
 categories = ["command-line-utilities"]
 edition = "2021"
+exclude = ["/benchmarks/*"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/bnkc/pyprune"
+rust-version = "1.76.0"
+
 
 [dependencies]
 rustpython-parser = "0.3.0"
