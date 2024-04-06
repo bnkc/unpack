@@ -1,4 +1,4 @@
-name: Rust
+name: CI
 
 on:
   push:
@@ -11,7 +11,10 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v3
@@ -21,8 +24,15 @@ jobs:
         with:
           profile: minimal
           toolchain: 1.76.0
+          components: rustfmt, clippy
           override: true
           default: true
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+      - name: Lint with Clippy
+        run: cargo clippy -- -D warnings
 
       - name: Build
         run: cargo build --verbose
