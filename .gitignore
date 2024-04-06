@@ -1,3 +1,4 @@
 /target
 /autocomplete/
 **/*.rs.bk
+.vscode/
