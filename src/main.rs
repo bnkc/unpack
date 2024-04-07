@@ -2,8 +2,8 @@ mod analyze;
 mod cli;
 mod config;
 mod exit_codes;
+mod models;
 mod output;
-mod runtime_assets;
 
 use std::env;
 use std::path::{Path, PathBuf};

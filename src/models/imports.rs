@@ -46,12 +46,9 @@ fn build_walker(config: &Config) -> Result<WalkParallel> {
     let builder = WalkBuilder::new(&config.base_directory)
         .hidden(config.ignore_hidden)
         .max_depth(config.max_depth)
-        // .filter_entry(|entry| entry.path().extension().map_or(false, |ext| ext == "py"))
         .filter_entry(|entry| {
-            // Always traverse directories to look for nested Python files.
-            entry.file_type().map_or(false, |ft| ft.is_dir()) ||
-            // Only consider files that have a `.py` extension.
-            entry.path().extension().map_or(false, |ext| ext == "py")
+            entry.file_type().map_or(false, |ft| ft.is_dir())
+                || entry.path().extension().map_or(false, |ext| ext == "py")
         })
         .build_parallel(); // Builds the walker with parallelism support
 
@@ -134,7 +131,7 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::cli::{Env, OutputKind};
-    use crate::runtime_assets::PackageState;
+    use crate::models::PackageState;
 
     /// Helper function to create a Python file in the temporary directory.
     fn create_file(dir: &tempfile::TempDir, filename: &str, content: &str) -> PathBuf {
