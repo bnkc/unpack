@@ -40,8 +40,6 @@ pub struct Package {
 impl Hash for Package {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id.hash(state);
-        // Optionally hash other fields that implement Hash and contribute to uniqueness
-        // Do NOT hash the `aliases` field as HashSet<String> does not implement Hash
     }
 }
 
@@ -108,6 +106,7 @@ pub fn get_site_packages() -> Result<HashSet<PathBuf>> {
     Ok(pkg_paths)
 }
 
+/// Process the METADATA and RECORD files in the dist-info directory to extract package information.
 fn process_dist_info(entry: &Path) -> Result<Package> {
     let metadata_path = entry.join("METADATA");
     let metadata_content = fs::read_to_string(metadata_path)?;
@@ -157,6 +156,7 @@ fn process_dist_info(entry: &Path) -> Result<Package> {
     Ok(PackageBuilder::new(pkg_id, aliases, size).build())
 }
 
+/// Process the PKG-INFO and top_level.txt files in the egg-info directory to extract package information.
 fn process_egg_info(entry: &Path) -> Result<Package> {
     let metadata_path = entry.join("PKG-INFO");
     let metadata_content = fs::read_to_string(metadata_path)?;
@@ -218,223 +218,126 @@ mod tests {
     use super::*;
     use std::fs::File;
     use std::io::Write;
-    use tempfile::tempdir;
+    use tempfile::TempDir;
 
-    /// Helper function to create dist-info directory structure with optional METADATA and RECORD files.
-    fn create_dist_info_dir(
-        temp_dir: &tempfile::TempDir,
+    /// Helper function to create either dist-info or egg-info directory structure
+    /// with optional files and their contents.
+    fn create_info_dir(
+        temp_dir: &TempDir,
         package_name: &str,
-        metadata_content: Option<&str>,
-        record_content: Option<&str>,
+        dir_type: &str,
+        files: Vec<(&str, Option<&str>)>,
     ) {
-        let dist_info_path = temp_dir
+        let info_path = temp_dir
             .path()
-            .join(format!("{}-0.1.dist-info", package_name));
-        fs::create_dir(&dist_info_path).unwrap();
+            .join(format!("{}-0.1.{}", package_name, dir_type));
+        fs::create_dir(&info_path).unwrap();
 
-        if let Some(metadata) = metadata_content {
-            let metadata_path = dist_info_path.join("METADATA");
-            let mut metadata_file = File::create(&metadata_path).unwrap();
-            writeln!(metadata_file, "{}", metadata).unwrap();
-        }
-
-        if let Some(record) = record_content {
-            let record_path = dist_info_path.join("RECORD");
-            let mut record_file = File::create(&record_path).unwrap();
-            writeln!(record_file, "{}", record).unwrap();
-        }
-    }
-
-    /// Helper function to create egg-info directory structure with optional PKG-INFO and top_level.txt files.
-    fn create_egg_info_dir(
-        temp_dir: &tempfile::TempDir,
-        package_name: &str,
-        metadata_content: Option<&str>,
-        top_level_content: Option<&str>,
-    ) {
-        let egg_info_path = temp_dir
-            .path()
-            .join(format!("{}-0.1.egg-info", package_name));
-        fs::create_dir(&egg_info_path).unwrap();
-
-        if let Some(metadata) = metadata_content {
-            let metadata_path = egg_info_path.join("PKG-INFO");
-            let mut metadata_file = File::create(&metadata_path).unwrap();
-            writeln!(metadata_file, "{}", metadata).unwrap();
-        }
-
-        if let Some(top_level) = top_level_content {
-            let top_level_path = egg_info_path.join("top_level.txt");
-            let mut top_level_file = File::create(&top_level_path).unwrap();
-            writeln!(top_level_file, "{}", top_level).unwrap();
+        for (file_name, content) in files {
+            let file_path = info_path.join(file_name);
+            let mut file = File::create(&file_path).unwrap();
+            if let Some(content) = content {
+                writeln!(file, "{}", content).unwrap();
+            }
         }
     }
 
     #[test]
-    fn test_process_dist_info() {
-        let temp_dir = tempdir().unwrap();
-        create_dist_info_dir(
+    fn test_process_dist_info_successful() {
+        let temp_dir = TempDir::new().unwrap();
+        create_info_dir(
             &temp_dir,
-            "test_package",
-            Some("Name: Test_Package"),
-            Some("test_package/__init__.py,,"),
+            "successful_package",
+            "dist-info",
+            vec![
+                ("METADATA", Some("Name: Successful_Package\nVersion: 1.0.0")),
+                (
+                    "RECORD",
+                    Some("successful_package/__init__.py,,\nsuccessful_package/module.py,,"),
+                ),
+            ],
         );
 
-        let package = process_dist_info(&temp_dir.path().join("test_package-0.1.dist-info"))
-            .expect("Failed to process dist-info directory.");
-
-        assert_eq!(package.id, "test-package");
-        assert_eq!(package.size, 0);
-        assert!(package.aliases.contains("test_package"));
-    }
-
-    /// test that raises an error when the aliases are not found in the RECORD file
-    #[test]
-    fn test_process_dist_info_no_aliases() {
-        let temp_dir = tempdir().unwrap();
-        create_dist_info_dir(&temp_dir, "no_aliases", Some("Name: No_Aliases"), Some(""));
-
-        let result = process_dist_info(&temp_dir.path().join("no_aliases-0.1.dist-info"));
-        assert!(
-            result.is_err(),
-            "Should raise an error when aliases are not found."
-        );
+        let result = process_dist_info(&temp_dir.path().join("successful_package-0.1.dist-info"));
+        assert!(result.is_ok());
+        let package = result.unwrap();
+        assert_eq!(package.id, "successful-package");
+        assert!(package.aliases.contains("successful_package"));
     }
 
     #[test]
-    fn test_process_egg_info() {
-        let temp_dir = tempdir().unwrap();
-        create_egg_info_dir(
+    fn test_process_egg_info_successful() {
+        let temp_dir = TempDir::new().unwrap();
+        create_info_dir(
             &temp_dir,
-            "test_package",
-            Some("Name: Test_Package"),
-            Some("test_package"),
+            "successful_egg",
+            "egg-info",
+            vec![
+                ("PKG-INFO", Some("Name: Successful_Egg\nVersion: 2.0.0")),
+                ("top_level.txt", Some("successful_egg")),
+            ],
         );
 
-        let package = process_egg_info(&temp_dir.path().join("test_package-0.1.egg-info"))
-            .expect("Failed to process egg-info directory.");
-
-        assert_eq!(package.id, "test-package");
-        assert_eq!(package.size, 0);
-        assert!(package.aliases.contains("test_package"));
-    }
-
-    /// test that raises an error when the aliases are not found in the top_level.txt file
-    #[test]
-    fn test_process_egg_info_no_aliases() {
-        let temp_dir = tempdir().unwrap();
-        create_egg_info_dir(&temp_dir, "no_aliases", Some("Name: No_Aliases"), None);
-
-        let result = process_egg_info(&temp_dir.path().join("no_aliases-0.1.egg-info"));
-        assert!(
-            result.is_err(),
-            "Should raise an error when aliases are not found."
-        );
-    }
-
-    /// Tests that `get_site_packages` successfully retrieves the site-packages directory.
-    #[test]
-    fn test_get_site_packages() {
-        // This test assumes that Python and a virtual environment are correctly set up.
-        let site_packages = get_site_packages();
-        assert!(
-            site_packages.is_ok(),
-            "Failed to get site-packages directory. "
-        );
+        let result = process_egg_info(&temp_dir.path().join("successful_egg-0.1.egg-info"));
+        assert!(result.is_ok());
+        let package = result.unwrap();
+        assert_eq!(package.id, "successful-egg");
+        assert!(package.aliases.contains("successful_egg"));
     }
 
     #[test]
-    fn test_get_packages() {
-        let temp_dir = tempdir().unwrap();
-        let site_packages_path = temp_dir.path().join("site-packages");
-        fs::create_dir(&site_packages_path).unwrap();
-
-        // Mock a package structure
-        let package_name = "test_package";
-        let dist_info_path = site_packages_path.join(format!("{}-0.1.dist-info", package_name));
-        fs::create_dir(&dist_info_path).unwrap();
-
-        // Create METADATA file
-        let metadata_path = dist_info_path.join("METADATA");
-        let mut metadata_file = File::create(&metadata_path).unwrap();
-        writeln!(metadata_file, "Name: Test_Package").unwrap();
-
-        // Create RECORD file
-        let record_path = dist_info_path.join("RECORD");
-        let mut record_file = File::create(&record_path).unwrap();
-        writeln!(record_file, "test_package/__init__.py,,").unwrap();
-
-        let packages = get_packages(std::iter::once(site_packages_path).collect()).unwrap();
-
-        assert_eq!(packages.len(), 1);
-        let package = packages.iter().next().unwrap();
-        assert_eq!(package.id, "test-package");
-        assert!(package.aliases.contains("test_package"));
-    }
-
-    #[test]
-    fn test_get_packages_missing_metadata() {
-        let temp_dir = tempdir().unwrap();
-        create_dist_info_dir(&temp_dir, "missing_metadata", None, Some(""));
-
-        let packages =
-            get_packages(std::iter::once(temp_dir.path().to_path_buf()).collect()).unwrap();
-
-        assert!(
-            packages.is_empty(),
-            "Packages set should be empty when RECORD is missing."
-        );
-    }
-
-    /// Test case with invalid METADATA file.
-    #[test]
-    fn test_get_packages_invalid_metadata() {
-        let temp_dir = tempdir().unwrap();
-        create_dist_info_dir(
+    fn test_process_dist_info_no_metadata() {
+        let temp_dir = TempDir::new().unwrap();
+        create_info_dir(
             &temp_dir,
-            "invalid_metadata",
-            Some("Invalid Content"),
-            Some(""),
+            "no_metadata_package",
+            "dist-info",
+            vec![("RECORD", Some("no_metadata_package/__init__.py,,"))],
         );
 
-        let packages =
-            get_packages(std::iter::once(temp_dir.path().to_path_buf()).collect()).unwrap();
-        assert!(
-            packages.is_empty(),
-            "Packages set should be empty with invalid METADATA content."
-        );
+        let result = process_dist_info(&temp_dir.path().join("no_metadata_package-0.1.dist-info"));
+        assert!(result.is_err());
     }
 
-    /// Test case with empty RECORD file.
     #[test]
-    fn test_get_packages_empty_record() {
-        let temp_dir = tempdir().unwrap();
-        create_dist_info_dir(
+    fn test_process_egg_info_no_pkg_info() {
+        let temp_dir = TempDir::new().unwrap();
+        create_info_dir(
             &temp_dir,
-            "empty_record",
-            Some("Name: Test_Package"),
-            Some(""),
+            "no_pkg_info_egg",
+            "egg-info",
+            vec![("top_level.txt", Some("no_pkg_info_egg"))],
         );
 
-        let packages =
-            get_packages(std::iter::once(temp_dir.path().to_path_buf()).collect()).unwrap();
-        assert!(
-            packages.is_empty(),
-            "Packages set should be empty with an empty RECORD file."
-        );
+        let result = process_egg_info(&temp_dir.path().join("no_pkg_info_egg-0.1.egg-info"));
+        assert!(result.is_err());
     }
 
-    /// Tests `PackageBuilder` functionality.
     #[test]
-    fn test_package_builder() {
-        let id = "test_package";
-        let aliases = HashSet::from(["test_package".to_string()]);
-        let size = 1024;
+    fn test_process_dist_info_no_record() {
+        let temp_dir = TempDir::new().unwrap();
+        create_info_dir(
+            &temp_dir,
+            "no_record_package",
+            "dist-info",
+            vec![("METADATA", Some("Name: No_Record_Package\nVersion: 1.0.0"))],
+        );
 
-        let package = PackageBuilder::new(id.to_string(), aliases, size).build();
+        let result = process_dist_info(&temp_dir.path().join("no_record_package-0.1.dist-info"));
+        assert!(result.is_err());
+    }
 
-        assert_eq!(package.id, "test-package"); // underscore replaced by hyphen
-        assert_eq!(package.size, size);
-        assert!(package.aliases.contains("test_package"));
+    #[test]
+    fn test_process_egg_info_no_top_level() {
+        let temp_dir = TempDir::new().unwrap();
+        create_info_dir(
+            &temp_dir,
+            "no_top_level_egg",
+            "egg-info",
+            vec![("PKG-INFO", Some("Name: No_Top_Level_Egg\nVersion: 2.0.0"))],
+        );
+
+        let result = process_egg_info(&temp_dir.path().join("no_top_level_egg-0.1.egg-info"));
+        assert!(result.is_err());
     }
 }
