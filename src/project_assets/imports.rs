@@ -131,7 +131,7 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::cli::{Env, OutputKind};
-    use crate::models::PackageState;
+    use crate::project_assets::PackageState;
 
     /// Helper function to create a Python file in the temporary directory.
     fn create_file(dir: &tempfile::TempDir, filename: &str, content: &str) -> PathBuf {
