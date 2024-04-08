@@ -6,10 +6,10 @@ use serde::Serialize;
 use crate::config::Config;
 use crate::exit_codes::ExitCode;
 use crate::output::Outcome;
-use crate::runtime_assets::get_imports;
-use crate::runtime_assets::get_packages;
-use crate::runtime_assets::{get_dependencies, Dependency};
-use crate::runtime_assets::{get_site_packages, Package, PackageState};
+use crate::project_assets::get_imports;
+use crate::project_assets::get_packages;
+use crate::project_assets::{get_dependencies, Dependency};
+use crate::project_assets::{get_site_packages, Package, PackageState};
 
 #[derive(Serialize, Debug, PartialEq, Eq, Clone)]
 pub struct AnalysisElement<'a> {
@@ -119,7 +119,7 @@ pub fn scan(config: Config) -> Result<ExitCode> {
 mod tests {
 
     use super::*;
-    use crate::runtime_assets::{DependencyBuilder, PackageBuilder};
+    use crate::project_assets::{DependencyBuilder, PackageBuilder};
 
     /// Helper function to create a Package instance.
     fn create_package(id: &str, aliases: &[&str]) -> Package {

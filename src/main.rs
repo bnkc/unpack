@@ -3,7 +3,7 @@ mod cli;
 mod config;
 mod exit_codes;
 mod output;
-mod runtime_assets;
+mod project_assets;
 
 use std::env;
 use std::path::{Path, PathBuf};

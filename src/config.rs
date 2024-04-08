@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::cli::{Env, OutputKind};
-use crate::runtime_assets::PackageState;
+use crate::project_assets::PackageState;
 
 pub struct Config {
     /// The path to the directory to search for Python files.
