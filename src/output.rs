@@ -1,3 +1,4 @@
+use std::cmp::Reverse;
 use std::io::Write;
 
 use anyhow::Result;
@@ -25,7 +26,7 @@ struct Record<'r> {
 }
 
 impl<'a> Outcome<'a> {
-    pub fn print_report(&self, config: &Config, mut stdout: impl Write) -> Result<ExitCode> {
+    pub fn print_report(&mut self, config: &Config, mut stdout: impl Write) -> Result<ExitCode> {
         match config.output {
             OutputKind::Human => self.pretty_print(&mut stdout, config),
             OutputKind::Json => self.json_print(&mut stdout),
@@ -39,7 +40,7 @@ impl<'a> Outcome<'a> {
         Ok(ExitCode::Success)
     }
 
-    fn pretty_print(&self, stdout: &mut impl Write, config: &Config) -> Result<ExitCode> {
+    fn pretty_print(&mut self, stdout: &mut impl Write, config: &Config) -> Result<ExitCode> {
         if self.success {
             writeln!(
                 stdout,
@@ -52,9 +53,7 @@ impl<'a> Outcome<'a> {
 
         writeln!(stdout, "\n 📦 {:?} Packages", config.package_state)?;
 
-        // sort elements by size
-        let mut elements = self.elements.clone();
-        elements.sort_by_key(|el| el.package.size());
+        self.elements.sort_by_key(|e| Reverse(e.package.size()));
 
         let records: Vec<Record> = self
             .elements

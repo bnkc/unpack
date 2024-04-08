@@ -1,7 +1,6 @@
 extern crate bytesize;
 extern crate fs_extra;
 
-use log::warn;
 use std::collections::HashSet;
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -109,77 +108,108 @@ pub fn get_site_packages() -> Result<HashSet<PathBuf>> {
     Ok(pkg_paths)
 }
 
-/// This function loads the packages from the specified site packages directory.
-/// It takes a `SitePackages` object as input and returns a `Result` indicating success or failure.
+fn process_dist_info(entry: &Path) -> Result<Package> {
+    let metadata_path = entry.join("METADATA");
+    let metadata_content = fs::read_to_string(metadata_path)?;
+
+    let pkg_id = metadata_content
+        .lines()
+        .find_map(|line| line.strip_prefix("Name: "))
+        .map(str::to_lowercase)
+        .context("Package name not found in METADATA")?;
+
+    let record_path = entry.join("RECORD");
+    let record_content = fs::read_to_string(record_path)?;
+
+    let aliases: HashSet<String> = record_content
+        .lines()
+        .filter_map(|line| {
+            let alias_path_str = line.split(',').next()?;
+            let alias_path = Path::new(alias_path_str);
+            if alias_path.extension().unwrap_or_default() != "py"
+                || alias_path.components().count() <= 1
+            {
+                return None;
+            }
+            alias_path.components().next().and_then(|comp| {
+                if let Component::Normal(root_dir) = comp {
+                    root_dir.to_str().map(ToString::to_string)
+                } else {
+                    None
+                }
+            })
+        })
+        .collect();
+
+    if aliases.is_empty() {
+        bail!("No valid aliases found in RECORD");
+    }
+
+    // root dir without the "dist-info" suffix
+    let site_dir = entry.parent().unwrap();
+
+    let size = aliases
+        .iter()
+        .map(|alias| site_dir.join(alias))
+        .map(|potential_path| get_size(potential_path).unwrap_or(0))
+        .sum();
+
+    Ok(PackageBuilder::new(pkg_id, aliases, size).build())
+}
+
+fn process_egg_info(entry: &Path) -> Result<Package> {
+    let metadata_path = entry.join("PKG-INFO");
+    let metadata_content = fs::read_to_string(metadata_path)?;
+
+    let pkg_id = metadata_content
+        .lines()
+        .find_map(|line| line.strip_prefix("Name: "))
+        .map(str::to_lowercase)
+        .context("Package name not found in PKG-INFO")?;
+
+    let top_level_path = entry.join("top_level.txt");
+
+    let aliases: HashSet<String> = fs::read_to_string(top_level_path)?
+        .lines()
+        .map(ToString::to_string)
+        .collect();
+
+    if aliases.is_empty() {
+        bail!("No valid aliases found in top_level.txt");
+    }
+
+    // root dir without the "egg-info" suffix
+    let site_dir = entry.parent().unwrap();
+
+    let size = aliases
+        .iter()
+        .map(|alias| site_dir.join(alias))
+        .map(|potential_path| get_size(potential_path).unwrap_or(0))
+        .sum();
+
+    Ok(PackageBuilder::new(pkg_id, aliases, size).build())
+}
+
+/// This function determines the packages installed in the site-packages directory.
 pub fn get_packages(site_packages: HashSet<PathBuf>) -> Result<HashSet<Package>> {
     let mut packages = HashSet::new();
 
     for path in site_packages {
-        // There is also a `*.egg-info` directory that we will ignore for now
-        let glob_pattern = format!("{}/{}dist-info", path.display(), "*");
-        for entry in glob(&glob_pattern)?.filter_map(Result::ok) {
-            let metadata_path = entry.join("METADATA");
-            let metadata_content = match fs::read_to_string(&metadata_path) {
-                Ok(content) => content,
-                Err(e) => {
-                    warn!("Failed to read METADATA in {:?}: {}", entry, e);
-                    continue;
-                }
-            };
-
-            let pkg_id = match metadata_content
-                .lines()
-                .find_map(|line| line.strip_prefix("Name: "))
-            {
-                Some(name) => name.to_lowercase(),
-                None => {
-                    warn!("Package name not found in METADATA for {:?}", entry);
-                    continue;
-                }
-            };
-
-            let record_path = entry.join("RECORD");
-            let record_content = match fs::read_to_string(&record_path) {
-                Ok(content) => content,
-                Err(e) => {
-                    warn!("Failed to read RECORD in {:?}: {}", entry, e);
-                    continue;
-                }
-            };
-
-            let aliases: HashSet<String> = record_content
-                .lines()
-                .filter_map(|line| {
-                    let alias_path_str = line.split(',').next()?;
-                    let alias_path = Path::new(alias_path_str);
-                    if alias_path.extension().unwrap_or_default() != "py"
-                        || alias_path.components().count() <= 1
-                    {
-                        return None;
-                    }
-                    alias_path.components().next().and_then(|comp| {
-                        if let Component::Normal(root_dir) = comp {
-                            root_dir.to_str().map(ToString::to_string)
-                        } else {
-                            None
-                        }
-                    })
-                })
-                .collect();
-
-            if aliases.is_empty() {
-                continue;
+        let dist_info_pattern = format!("{}/{}dist-info", path.display(), "*");
+        for entry in glob(&dist_info_pattern)?.filter_map(Result::ok) {
+            if let Ok(package) = process_dist_info(entry.as_path()) {
+                packages.insert(package);
             }
+        }
 
-            let size = aliases
-                .iter()
-                .map(|alias| path.join(alias))
-                .map(|potential_path| get_size(potential_path).unwrap_or(0))
-                .sum();
-            let package = PackageBuilder::new(pkg_id, aliases, size).build();
-            packages.insert(package);
+        let egg_info_pattern = format!("{}/{}egg-info", path.display(), "*");
+        for entry in glob(&egg_info_pattern)?.filter_map(Result::ok) {
+            if let Ok(package) = process_egg_info(entry.as_path()) {
+                packages.insert(package);
+            }
         }
     }
+
     Ok(packages)
 }
 
@@ -213,6 +243,93 @@ mod tests {
             let mut record_file = File::create(&record_path).unwrap();
             writeln!(record_file, "{}", record).unwrap();
         }
+    }
+
+    /// Helper function to create egg-info directory structure with optional PKG-INFO and top_level.txt files.
+    fn create_egg_info_dir(
+        temp_dir: &tempfile::TempDir,
+        package_name: &str,
+        metadata_content: Option<&str>,
+        top_level_content: Option<&str>,
+    ) {
+        let egg_info_path = temp_dir
+            .path()
+            .join(format!("{}-0.1.egg-info", package_name));
+        fs::create_dir(&egg_info_path).unwrap();
+
+        if let Some(metadata) = metadata_content {
+            let metadata_path = egg_info_path.join("PKG-INFO");
+            let mut metadata_file = File::create(&metadata_path).unwrap();
+            writeln!(metadata_file, "{}", metadata).unwrap();
+        }
+
+        if let Some(top_level) = top_level_content {
+            let top_level_path = egg_info_path.join("top_level.txt");
+            let mut top_level_file = File::create(&top_level_path).unwrap();
+            writeln!(top_level_file, "{}", top_level).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_process_dist_info() {
+        let temp_dir = tempdir().unwrap();
+        create_dist_info_dir(
+            &temp_dir,
+            "test_package",
+            Some("Name: Test_Package"),
+            Some("test_package/__init__.py,,"),
+        );
+
+        let package = process_dist_info(&temp_dir.path().join("test_package-0.1.dist-info"))
+            .expect("Failed to process dist-info directory.");
+
+        assert_eq!(package.id, "test-package");
+        assert_eq!(package.size, 0);
+        assert!(package.aliases.contains("test_package"));
+    }
+
+    /// test that raises an error when the aliases are not found in the RECORD file
+    #[test]
+    fn test_process_dist_info_no_aliases() {
+        let temp_dir = tempdir().unwrap();
+        create_dist_info_dir(&temp_dir, "no_aliases", Some("Name: No_Aliases"), Some(""));
+
+        let result = process_dist_info(&temp_dir.path().join("no_aliases-0.1.dist-info"));
+        assert!(
+            result.is_err(),
+            "Should raise an error when aliases are not found."
+        );
+    }
+
+    #[test]
+    fn test_process_egg_info() {
+        let temp_dir = tempdir().unwrap();
+        create_egg_info_dir(
+            &temp_dir,
+            "test_package",
+            Some("Name: Test_Package"),
+            Some("test_package"),
+        );
+
+        let package = process_egg_info(&temp_dir.path().join("test_package-0.1.egg-info"))
+            .expect("Failed to process egg-info directory.");
+
+        assert_eq!(package.id, "test-package");
+        assert_eq!(package.size, 0);
+        assert!(package.aliases.contains("test_package"));
+    }
+
+    /// test that raises an error when the aliases are not found in the top_level.txt file
+    #[test]
+    fn test_process_egg_info_no_aliases() {
+        let temp_dir = tempdir().unwrap();
+        create_egg_info_dir(&temp_dir, "no_aliases", Some("Name: No_Aliases"), None);
+
+        let result = process_egg_info(&temp_dir.path().join("no_aliases-0.1.egg-info"));
+        assert!(
+            result.is_err(),
+            "Should raise an error when aliases are not found."
+        );
     }
 
     /// Tests that `get_site_packages` successfully retrieves the site-packages directory.

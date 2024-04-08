@@ -50,7 +50,7 @@ fn build_walker(config: &Config) -> Result<WalkParallel> {
             entry.file_type().map_or(false, |ft| ft.is_dir())
                 || entry.path().extension().map_or(false, |ext| ext == "py")
         })
-        .build_parallel(); // Builds the walker with parallelism support
+        .build_parallel();
 
     Ok(builder)
 }
