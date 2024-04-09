@@ -7,7 +7,7 @@
 <!-- [![Crates.io version shield](https://img.shields.io/crates/v/logos.svg)](https://crates.io/crates/logos) -->
 <!-- [![Docs](https://docs.rs/logos/badge.svg)](https://docs.rs/logos) -->
 
-_Unpack python packages from your python project and more._
+_Unpack python packages from your project and more._
 
 **Unpack** has a few goals:
 
