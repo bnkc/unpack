@@ -1,4 +1,4 @@
-<img src="https://github.com/bnkc/pyprune/blob/main/prune.svg" alt="Logos logo" width="300" align="right">
+<img src="https://github.com/bnkc/pyprune/blob/main/prune.svg" alt="Logos logo" width="250" align="right">
 
 # PyPrune
 
