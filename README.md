@@ -1,11 +1,11 @@
-<img src="https://github.com/bnkc/pyprune/blob/main/prune.svg" alt="Logos logo" width="250" align="right">
+<img src="https://raw.githubusercontent.com/maciejhirsz/logos/master/logos.svg?sanitize=true" alt="Logos logo" width="250" align="right">
 
-# PyPrune
+# Logos
 
-[![CI](https://github.com/bnkc/pyprune/actions/workflows/ci.yml/badge.svg)](https://github.com/bnkc/pyprune/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-<!-- [![Crates.io version shield](https://img.shields.io/crates/v/logos.svg)](https://crates.io/crates/logos) -->
-<!-- [![Docs](https://docs.rs/logos/badge.svg)](https://docs.rs/logos) -->
+![Test](https://github.com/maciejhirsz/logos/workflows/Test/badge.svg?branch=master)
+[![Crates.io version shield](https://img.shields.io/crates/v/logos.svg)](https://crates.io/crates/logos)
+[![Docs](https://docs.rs/logos/badge.svg)](https://docs.rs/logos)
+[![Crates.io license shield](https://img.shields.io/crates/l/logos.svg)](https://crates.io/crates/logos)
 
 _Prune unused python dependencies and more._
 
