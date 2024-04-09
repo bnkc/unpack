@@ -22,7 +22,7 @@ fn main() {
             exit_code.exit();
         }
         Err(err) => {
-            eprintln!("[pip-udeps error]: {:#}", err);
+            eprintln!("[pyprune error]: {:#}", err);
             ExitCode::GeneralError.exit();
         }
     }
@@ -51,7 +51,7 @@ fn construct_config(opts: Opts) -> Result<Config> {
         max_depth,
         env: Env::Dev,
         output,
-        package_state: opts.dependency_status,
+        package_state: opts.package_status,
     })
 }
 

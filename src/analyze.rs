@@ -52,12 +52,20 @@ impl ProjectAnalysis {
     }
 
     fn get_unused(&self) -> Vec<AnalysisElement<'_>> {
+        let used_packages = self.get_used();
+
+        let used_requirements: HashSet<String> = used_packages
+            .iter()
+            .flat_map(|e| e.package.requirements().iter().cloned())
+            .collect();
+
         self.dependencies
             .iter()
             .filter_map(|dep| {
                 self.packages
                     .iter()
                     .find(|pkg| pkg.id() == dep.id() && pkg.aliases().is_disjoint(&self.imports))
+                    .filter(|pkg| !used_requirements.contains(pkg.id()))
                     .map(|pkg| AnalysisElement {
                         package: pkg,
                         dependency: Some(dep),
@@ -122,9 +130,9 @@ mod tests {
     use crate::project_assets::{DependencyBuilder, PackageBuilder};
 
     /// Helper function to create a Package instance.
-    fn create_package(id: &str, aliases: &[&str]) -> Package {
+    fn create_package(id: &str, aliases: &[&str], requirements: HashSet<String>) -> Package {
         let aliases = aliases.iter().map(|s| s.to_string()).collect();
-        PackageBuilder::new(id.to_string(), aliases, 0).build()
+        PackageBuilder::new(id.to_string(), aliases, 0, requirements).build()
     }
 
     // Helper function to create a Dependency instance.
@@ -136,7 +144,13 @@ mod tests {
 
     #[test]
     fn test_get_used() {
-        let pkg1 = create_package("pkg1", &["alias1"]);
+        // let pkg_requirements = HashSet::from(["requirement1".to_string()]);
+
+        let pkg1 = create_package(
+            "pkg1",
+            &["alias1"],
+            HashSet::from(["requirement1".to_string()]),
+        );
         let dep1 = create_dependency("pkg1");
         let imports = HashSet::from(["alias1".to_string()]);
 
@@ -155,7 +169,11 @@ mod tests {
 
     #[test]
     fn test_get_used_no_dependencies() {
-        let pkg1 = create_package("pkg1", &["alias1"]);
+        let pkg1 = create_package(
+            "pkg1",
+            &["alias1"],
+            HashSet::from(["requirement1".to_string()]),
+        );
         let imports = HashSet::from(["alias1".to_string()]);
 
         let analysis = ProjectAnalysis::new(HashSet::from([pkg1]), HashSet::new(), imports);
@@ -183,8 +201,16 @@ mod tests {
 
     #[test]
     fn test_multiple_dependencies_and_packages() {
-        let pkg1 = create_package("pkg1", &["alias1"]);
-        let pkg2 = create_package("pkg2", &["alias2", "alias3"]);
+        let pkg1 = create_package(
+            "pkg1",
+            &["alias1"],
+            HashSet::from(["requirement1".to_string()]),
+        );
+        let pkg2 = create_package(
+            "pkg2",
+            &["alias2", "alias3"],
+            HashSet::from(["requirement1".to_string()]),
+        );
         let dep1 = create_dependency("pkg1");
         let dep2 = create_dependency("pkg2");
         let imports = HashSet::from(["alias1".to_string(), "alias3".to_string()]);
@@ -204,7 +230,11 @@ mod tests {
 
     #[test]
     fn test_get_unused() {
-        let pkg1 = create_package("pkg1", &["alias1"]);
+        let pkg1 = create_package(
+            "pkg1",
+            &["alias1"],
+            HashSet::from(["requirement1".to_string()]),
+        );
         let dep1 = create_dependency("pkg1");
         let imports = HashSet::new(); // No imports, so pkg1 should be unused.
 
@@ -217,8 +247,51 @@ mod tests {
     }
 
     #[test]
+    fn test_get_unused_with_overlapping_package_dependencies() {
+        // Here, pkg1 has a dependency on pkg2, but pkg2 is not imported.
+        let pkg1 = create_package("pkg1", &["alias1"], HashSet::from(["pkg2".to_string()]));
+        let pkg2 = create_package(
+            "pkg2",
+            &["alias2"],
+            HashSet::from(["requirement2".to_string()]),
+        );
+        let dep1 = create_dependency("pkg1");
+        let dep2 = create_dependency("pkg2");
+        let imports = HashSet::from(["alias1".to_string()]);
+        let analysis = ProjectAnalysis::new(
+            HashSet::from([pkg1, pkg2.clone()]),
+            HashSet::from([dep1.clone(), dep2.clone()]),
+            imports.clone(),
+        );
+
+        let unused = analysis.get_unused();
+
+        // There should be 0 unused packages as pkg2 is a dependency of pkg1. so even though it is not imported, it is still used indirectly.
+        assert!(
+            unused.is_empty(),
+            "No packages should be considered unused as pkg2 is a dependency of pkg1."
+        );
+
+        // Now, if we remove the dependency on pkg2 from pkg1, pkg2 should be considered unused.
+        let pkg1 = create_package("pkg1", &["alias1"], HashSet::new());
+        let analysis = ProjectAnalysis::new(
+            HashSet::from([pkg1, pkg2]),
+            HashSet::from([dep1, dep2]),
+            imports,
+        );
+
+        let unused = analysis.get_unused();
+        assert_eq!(unused.len(), 1);
+        assert_eq!(unused[0].package.id(), "pkg2");
+    }
+
+    #[test]
     fn test_get_untracked() {
-        let pkg1 = create_package("pkg1", &["alias1"]);
+        let pkg1 = create_package(
+            "pkg1",
+            &["alias1"],
+            HashSet::from(["requirement1".to_string()]),
+        );
         let imports = HashSet::from(["alias1".to_string()]);
 
         let analysis = ProjectAnalysis::new(
@@ -235,7 +308,11 @@ mod tests {
 
     #[test]
     fn test_get_untracked_no_aliases_imported() {
-        let pkg1 = create_package("pkg1", &["alias1"]);
+        let pkg1 = create_package(
+            "pkg1",
+            &["alias1"],
+            HashSet::from(["requirement1".to_string()]),
+        );
         let imports = HashSet::from(["unrelated_alias".to_string()]);
 
         let analysis = ProjectAnalysis::new(HashSet::from([pkg1]), HashSet::new(), imports);
@@ -249,8 +326,16 @@ mod tests {
 
     #[test]
     fn test_packages_with_no_corresponding_dependency() {
-        let pkg1 = create_package("pkg1", &["alias1"]);
-        let pkg2 = create_package("pkg2", &["alias2"]); // This package does not have a corresponding dependency.
+        let pkg1 = create_package(
+            "pkg1",
+            &["alias1"],
+            HashSet::from(["requirement1".to_string()]),
+        );
+        let pkg2 = create_package(
+            "pkg2",
+            &["alias2"],
+            HashSet::from(["requirement1".to_string()]),
+        ); // This package does not have a corresponding dependency.
         let dep1 = create_dependency("pkg1");
         let imports = HashSet::from(["alias2".to_string()]);
 
@@ -267,7 +352,11 @@ mod tests {
     }
     #[test]
     fn test_case_sensitivity() {
-        let pkg1 = create_package("PKG1", &["Alias1"]);
+        let pkg1 = create_package(
+            "PKG1",
+            &["Alias1"],
+            HashSet::from(["requirement1".to_string()]),
+        );
         let dep1 = create_dependency("pkg1"); // Different case from the package ID.
         let imports = HashSet::from(["alias1".to_string()]); // Different case from the alias.
 
@@ -279,8 +368,16 @@ mod tests {
 
     #[test]
     fn test_overlapping_dependencies_and_imports() {
-        let pkg1 = create_package("pkg1", &["alias1", "alias2"]);
-        let pkg2 = create_package("pkg2", &["alias2"]);
+        let pkg1 = create_package(
+            "pkg1",
+            &["alias1", "alias2"],
+            HashSet::from(["requirement1".to_string()]),
+        );
+        let pkg2 = create_package(
+            "pkg2",
+            &["alias2"],
+            HashSet::from(["requirement1".to_string()]),
+        );
         let dep1 = create_dependency("pkg1");
         let dep2 = create_dependency("pkg2");
         let imports = HashSet::from(["alias2".to_string()]);

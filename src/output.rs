@@ -77,7 +77,8 @@ impl<'a> Outcome<'a> {
         note += " 💽 Total disk space: ";
         note += &total_size;
         note += "\n\n Note: There might be false-positives.\n";
-        note += "      For example, `pip-udeps` cannot detect usage of packages that are not imported under `[tool.poetry.*]`.\n";
+        note += "       For example, PyPrune cannot detect usage of packages that are not imported under `[tool.poetry.*]`.\n";
+        note += "       Similarly, it can only detect declared packages in requirements.txt or pyproject.toml.\n";
 
         writeln!(stdout, "\n{}", note)?;
 

@@ -14,6 +14,7 @@ use anyhow::bail;
 use anyhow::{Context, Result};
 use fs_extra::dir::get_size;
 use glob::glob;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 #[derive(clap::ValueEnum, Debug, PartialEq, Eq, Clone, Hash)]
@@ -35,6 +36,7 @@ pub struct Package {
     id: String,
     size: u64,
     aliases: HashSet<String>,
+    requirements: HashSet<String>,
 }
 
 impl Hash for Package {
@@ -55,6 +57,10 @@ impl Package {
     pub fn size(&self) -> u64 {
         self.size
     }
+
+    pub fn requirements(&self) -> &HashSet<String> {
+        &self.requirements
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -62,19 +68,32 @@ pub struct PackageBuilder {
     id: String,
     size: u64,
     aliases: HashSet<String>,
+    requirements: HashSet<String>,
 }
 
 impl PackageBuilder {
-    pub fn new(id: String, aliases: HashSet<String>, size: u64) -> Self {
-        Self { id, size, aliases }
+    pub fn new(
+        id: String,
+        aliases: HashSet<String>,
+        size: u64,
+        requirements: HashSet<String>,
+    ) -> Self {
+        let id = id.replace('_', "-").to_lowercase();
+        let requirements = requirements.into_iter().map(|s| s.to_lowercase()).collect();
+        Self {
+            id,
+            size,
+            aliases,
+            requirements,
+        }
     }
 
-    pub fn build(mut self) -> Package {
-        self.id = self.id.replace('_', "-");
+    pub fn build(self) -> Package {
         Package {
             id: self.id,
             size: self.size,
             aliases: self.aliases,
+            requirements: self.requirements,
         }
     }
 }
@@ -110,12 +129,25 @@ pub fn get_site_packages() -> Result<HashSet<PathBuf>> {
 fn process_dist_info(entry: &Path) -> Result<Package> {
     let metadata_path = entry.join("METADATA");
     let metadata_content = fs::read_to_string(metadata_path)?;
-
     let pkg_id = metadata_content
         .lines()
         .find_map(|line| line.strip_prefix("Name: "))
-        .map(str::to_lowercase)
+        .map(|s| s.to_string())
         .context("Package name not found in METADATA")?;
+
+    let split_regex = Regex::new(r"[;><=! (]|\s|~").expect("Invalid regex");
+    let requirements: HashSet<String> = metadata_content
+        .lines()
+        .filter_map(|line| line.strip_prefix("Requires-Dist: "))
+        .map(|req| {
+            split_regex
+                .split(req)
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        })
+        .collect();
 
     let record_path = entry.join("RECORD");
     let record_content = fs::read_to_string(record_path)?;
@@ -153,19 +185,33 @@ fn process_dist_info(entry: &Path) -> Result<Package> {
         .map(|potential_path| get_size(potential_path).unwrap_or(0))
         .sum();
 
-    Ok(PackageBuilder::new(pkg_id, aliases, size).build())
+    Ok(PackageBuilder::new(pkg_id, aliases, size, requirements).build())
 }
 
 /// Process the PKG-INFO and top_level.txt files in the egg-info directory to extract package information.
 fn process_egg_info(entry: &Path) -> Result<Package> {
-    let metadata_path = entry.join("PKG-INFO");
-    let metadata_content = fs::read_to_string(metadata_path)?;
+    let pkg_info_path = entry.join("PKG-INFO");
+    let pkg_info_content = fs::read_to_string(pkg_info_path)?;
 
-    let pkg_id = metadata_content
+    let pkg_id = pkg_info_content
         .lines()
         .find_map(|line| line.strip_prefix("Name: "))
-        .map(str::to_lowercase)
+        .map(|s| s.to_string())
         .context("Package name not found in PKG-INFO")?;
+
+    let split_regex = Regex::new(r"[;><=! (]|\s|~").expect("Invalid regex");
+    let requirements: HashSet<String> = pkg_info_content
+        .lines()
+        .filter_map(|line| line.strip_prefix("Requires-Dist: "))
+        .map(|req| {
+            split_regex
+                .split(req)
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        })
+        .collect();
 
     let top_level_path = entry.join("top_level.txt");
 
@@ -187,7 +233,7 @@ fn process_egg_info(entry: &Path) -> Result<Package> {
         .map(|potential_path| get_size(potential_path).unwrap_or(0))
         .sum();
 
-    Ok(PackageBuilder::new(pkg_id, aliases, size).build())
+    Ok(PackageBuilder::new(pkg_id, aliases, size, requirements).build())
 }
 
 /// This function determines the packages installed in the site-packages directory.
@@ -339,5 +385,66 @@ mod tests {
 
         let result = process_egg_info(&temp_dir.path().join("no_top_level_egg-0.1.egg-info"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_process_egg_info_successful_with_requirements() {
+        let temp_dir = TempDir::new().unwrap();
+        create_info_dir(
+        &temp_dir,
+        "successful_egg_with_requirements",
+        "egg-info",
+        vec![
+            ("PKG-INFO", Some("Name: Successful_Egg_With_Requirements\nVersion: 2.0.0\nRequires-Dist: package_one (>=1.0)\nRequires-Dist: package_two")),
+            ("top_level.txt", Some("successful_egg_with_requirements")),
+        ],
+    );
+
+        let result = process_egg_info(
+            &temp_dir
+                .path()
+                .join("successful_egg_with_requirements-0.1.egg-info"),
+        );
+        assert!(result.is_ok());
+        let package = result.unwrap();
+
+        assert_eq!(package.id, "successful-egg-with-requirements");
+        assert!(package.aliases.contains("successful_egg_with_requirements"));
+
+        assert!(package.requirements.contains("package_one"));
+        assert!(package.requirements.contains("package_two"));
+    }
+
+    #[test]
+    fn test_process_dist_info_successful_with_requirements() {
+        let temp_dir = TempDir::new().unwrap();
+        create_info_dir(
+            &temp_dir,
+            "successful_dist_with_requirements",
+            "dist-info",
+            vec![
+                ("METADATA", Some("Name: Successful_Dist_With_Requirements\nVersion: 1.0.0\nRequires-Dist: package_one (>=1.0)\nRequires-Dist: package_two")),
+                (
+                    "RECORD",
+                    Some("successful_dist_with_requirements/__init__.py,,\nsuccessful_dist_with_requirements/module.py,,"),
+                ),
+            ],
+        );
+
+        let result = process_dist_info(
+            &temp_dir
+                .path()
+                .join("successful_dist_with_requirements-0.1.dist-info"),
+        );
+        assert!(result.is_ok());
+        let package = result.unwrap();
+
+        assert_eq!(package.id, "successful-dist-with-requirements");
+        assert!(package
+            .aliases
+            .contains("successful_dist_with_requirements"));
+
+        assert!(package.requirements.contains("package_one"));
+        assert!(package.requirements.contains("package_two"));
     }
 }
