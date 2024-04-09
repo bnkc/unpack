@@ -20,8 +20,17 @@ To achieve those, **PyPrune**:
 + Collects all project imports by walking the [abstract syntax tree](https://en.wikipedia.org/wiki/Abstract_syntax_tree).
 + Collects all declared dependencies from the [dependency specification file](https://peps.python.org/pep-0508/).
 + Maps local environment [site-packages](https://ffy00.github.io/blog/02-python-debian-and-the-install-locations/) to resolve dependencies and the        imports they expose.
-+ Identifies local site package dependencies as to not accidently remove actively used dependencies of other packages.
-+ Calculates package size, and total disk space.
++ Identifies local site-package dependencies as to not accidently remove actively used dependencies of other packages.
++ Calculates package(s) size, and total disk usage.
+
+### Package States
+
+`-used` is when the package is installed, one of it's aliases is actively used in the project, and a corresponding dependency is declared in `pyproject.toml` or `requirements.txt`. This state indicates a fully integrated and properly managed package.
+
+`-unused` is when the package is installed, and a corresponding dependency is declared in `pyproject.toml` or `requirements.txt`, but is not actively used in the project. **Caveat:** This package must not be a dependency of any actively `-used` package to be considered unused.
+
+`-untracked` is when the package is installed, and one of it's aliases is actively used in the project, but is not declared in `pyproject.toml` or `requirements.txt`. This highlights packages that are implicitly used but not formally declared, which may lead to inconsistencies or issues in dependency management and deployment.
+
 
 
 <!-- ## Example

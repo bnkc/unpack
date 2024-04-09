@@ -22,7 +22,7 @@ pub enum PackageState {
     /// The dependency is installed, actively used in the project, and correctly listed in pyproject.toml.
     /// This state indicates a fully integrated and properly managed dependency.
     Used,
-    /// The dependency is installed and listed in pyproject.toml but is not actively used in the project.
+    /// The dependency is installed and listed in pyproject.toml but is not actively used in the project and is not a dependency of any used package.
     /// Ideal for identifying and possibly removing unnecessary dependencies to clean up the project. (default)
     Unused,
     /// The dependency is installed and actively used in the project but is missing from pyproject.toml.
