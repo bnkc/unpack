@@ -7,23 +7,24 @@
 <!-- [![Crates.io version shield](https://img.shields.io/crates/v/logos.svg)](https://crates.io/crates/logos) -->
 <!-- [![Docs](https://docs.rs/logos/badge.svg)](https://docs.rs/logos) -->
 
-_Prune unused python dependencies and more._
+_Prune unused packages from your python project and more._
 
 **PyPrune** has a few goals:
 
-+ To make it easy to find and remove unused packages.
-+ To make find untracked packages.
++ To easily navigate and remove used, unused, and untracked python packages.
++ To quickly identify disk usage of packages in the above categories. 
 + To view the relationship between various packages and their dependencies. 
 
-<!-- To achieve those, **Logos**:
+To achieve those, **PyPrune**:
 
-+ Combines all token definitions into a single [deterministic state machine](https://en.wikipedia.org/wiki/Deterministic_finite_automaton).
-+ Optimizes branches into [lookup tables](https://en.wikipedia.org/wiki/Lookup_table) or [jump tables](https://en.wikipedia.org/wiki/Branch_table).
-+ Prevents [backtracking](https://en.wikipedia.org/wiki/ReDoS) inside token definitions.
-+ [Unwinds loops](https://en.wikipedia.org/wiki/Loop_unrolling), and batches reads to minimize bounds checking.
-+ Does all of that heavy lifting at compile time.
++ Collects all project imports by walking the [abstract syntax tree](https://en.wikipedia.org/wiki/Abstract_syntax_tree).
++ Collects all declared dependencies from the [dependency specification file](https://peps.python.org/pep-0508/).
++ Maps local environment [site-packages](https://ffy00.github.io/blog/02-python-debian-and-the-install-locations/) to resolve dependencies and the        imports they expose.
++ Identifies local site package dependencies as to not accidently remove actively used dependencies of other packages.
++ Calculates package size, and total disk space.
 
-## Example
+
+<!-- ## Example
 
 ```rust
  use logos::Logos;
