@@ -1,6 +1,6 @@
 <img src="https://github.com/bnkc/pyprune/blob/main/logo.svg" alt="Logos logo" width="250" align="right">
 
-# UnPack
+# Unpack
 
 [![CI](https://github.com/bnkc/pyprune/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bnkc/pyprune/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
