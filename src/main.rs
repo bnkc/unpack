@@ -22,7 +22,7 @@ fn main() {
             exit_code.exit();
         }
         Err(err) => {
-            eprintln!("[pip-udeps error]: {:#}", err);
+            eprintln!("[pyprune error]: {:#}", err);
             ExitCode::GeneralError.exit();
         }
     }

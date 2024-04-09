@@ -6,15 +6,15 @@ use crate::project_assets::PackageState;
 
 #[derive(Parser)]
 #[command(
-    name = "pip-udeps",
+    name = "pyprune",
     version,
     about = "A program to find unused dependencies in Python projects.",
-    after_long_help = "Bugs can be reported on GitHub: https://github.com/bnkc/pip-udeps/issues",
+    after_long_help = "Bugs can be reported on GitHub: https://github.com/bnkc/pyprune/issues",
     max_term_width = 98
 )]
 pub struct Opts {
-    /// Change the working directory of pip-udeps to a provided path.
-    /// This means that pip-udeps will search for unused dependencies with
+    /// Change the working directory of pyprune to a provided path.
+    /// This means that pyprune will search for unused dependencies with
     /// respect to the given `base` path.
     /// Note: If the base path provided does not contain a `poetry.toml`, or
     /// `requirements.txt` within the root of the path provided, operation will exit.
