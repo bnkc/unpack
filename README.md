@@ -25,61 +25,32 @@ To achieve those, **PyPrune**:
 
 ### Package States
 
-+ `-used` is when the package is installed, one of it's aliases is actively used in the project, and a corresponding dependency is declared in `pyproject.toml` or `requirements.txt`. This state indicates a fully integrated and properly managed package.
++ `-used` is when the package is locally installed, one of it's aliases is actively used in the project, and a corresponding dependency is declared in `pyproject.toml` or `requirements.txt`. This state indicates a fully integrated and properly managed package.
 
-+ `-unused` is when the package is installed, and a corresponding dependency is declared in `pyproject.toml` or `requirements.txt`, but is not actively used in the project. **Caveat:** This package must not be a dependency of any actively `-used` package to be considered unused.
++ `-unused` is when the package is locally installed, and a corresponding dependency is declared in `pyproject.toml` or `requirements.txt`, but is not actively used in the project. **Caveat:** This package must not be a dependency of any actively `-used` package to be considered unused.
 
 + `-untracked` is when the package is installed, and one of it's aliases is actively used in the project, but is not declared in `pyproject.toml` or `requirements.txt`. This highlights packages that are implicitly used but not formally declared, which may lead to inconsistencies or issues in dependency management and deployment.
 
 
 
-<!-- ## Example
+## Example
 
-```rust
- use logos::Logos;
-
- #[derive(Logos, Debug, PartialEq)]
- #[logos(skip r"[ \t\n\f]+")] // Ignore this regex pattern between tokens
- enum Token {
-     // Tokens can be literal strings, of any length.
-     #[token("fast")]
-     Fast,
-
-     #[token(".")]
-     Period,
-
-     // Or regular expressions.
-     #[regex("[a-zA-Z]+")]
-     Text,
- }
-
- fn main() {
-     let mut lex = Token::lexer("Create ridiculously fast Lexers.");
-
-     assert_eq!(lex.next(), Some(Ok(Token::Text)));
-     assert_eq!(lex.span(), 0..6);
-     assert_eq!(lex.slice(), "Create");
-
-     assert_eq!(lex.next(), Some(Ok(Token::Text)));
-     assert_eq!(lex.span(), 7..19);
-     assert_eq!(lex.slice(), "ridiculously");
-
-     assert_eq!(lex.next(), Some(Ok(Token::Fast)));
-     assert_eq!(lex.span(), 20..24);
-     assert_eq!(lex.slice(), "fast");
-
-     assert_eq!(lex.next(), Some(Ok(Token::Text)));
-     assert_eq!(lex.slice(), "Lexers");
-     assert_eq!(lex.span(), 25..31);
-
-     assert_eq!(lex.next(), Some(Ok(Token::Period)));
-     assert_eq!(lex.span(), 31..32);
-     assert_eq!(lex.slice(), ".");
-
-     assert_eq!(lex.next(), None);
- }
 ```
+ 📦 Unused Packages
 
+ package      | version      | size     
+--------------+--------------+----------
+ scikit-learn | ^1.4.1.post1 | 46.9 MiB 
+ keras        | ^3.0.5       | 8.8 MiB  
+ pydantic     | ^1.9.0       | 3.1 MiB  
+
+ 💽 Total disk space: 58.9 MiB
+
+ Note: There might be false-positives.
+       For example, PyPrune cannot detect usage of packages that are not imported under `[tool.poetry.*]`.
+       Similarly, it can only detect declared packages in requirements.txt or pyproject.toml.
+```
+<!-- 
 For more examples and documentation, please refer to the
 [Logos handbook](https://maciejhirsz.github.io/logos/) or the
 [crate documentation](https://docs.rs/logos/latest/logos/).
