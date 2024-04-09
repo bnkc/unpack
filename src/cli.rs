@@ -8,13 +8,13 @@ use crate::project_assets::PackageState;
 #[command(
     name = "pyprune",
     version,
-    about = "A program to find unused dependencies in Python projects.",
+    about = "PyPrune is a simple, fast and user-friendly tool to analyze python project packaging.",
     after_long_help = "Bugs can be reported on GitHub: https://github.com/bnkc/pyprune/issues",
     max_term_width = 98
 )]
 pub struct Opts {
     /// Change the working directory of pyprune to a provided path.
-    /// This means that pyprune will search for unused dependencies with
+    /// This means that pyprune will search for unused packages with
     /// respect to the given `base` path.
     /// Note: If the base path provided does not contain a `poetry.toml`, or
     /// `requirements.txt` within the root of the path provided, operation will exit.
@@ -28,7 +28,7 @@ pub struct Opts {
     #[arg(default_value = ".")]
     pub base_directory: PathBuf,
 
-    /// Select the dependency status to search for.
+    /// Select the packages status to search for.
     #[arg(
         long,
         short = 's',
@@ -36,7 +36,7 @@ pub struct Opts {
         default_value("unused"),
         value_enum
     )]
-    pub dependency_status: PackageState,
+    pub package_status: PackageState,
 
     /// Include hidden directories and files in the search results (default:
     /// hidden files and directories are skipped). Files and directories are
@@ -55,7 +55,7 @@ pub struct Opts {
     #[arg(
         long,
         short = 'd',
-        value_name = "depth",
+        value_name("DEPTH"),
         alias("maxdepth"),
         help = "Set maximum search depth (default: none)",
         long_help
@@ -63,7 +63,7 @@ pub struct Opts {
     max_depth: Option<usize>,
 
     /// The output format to use allows for the selection of the output format
-    /// for the results of the unused dependencies search. The default output
+    /// for the results of the unused packages search. The default output
     /// format is `human`. The `json` format is also available.
     #[arg(
         long,

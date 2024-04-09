@@ -7,7 +7,7 @@ pub struct Config {
     /// The path to the directory to search for Python files.
     pub base_directory: PathBuf,
 
-    /// The dependency status to search for.
+    /// The package status to search for.
     /// Ex: `Unused`, `Untracked`, `Used`
     pub package_state: PackageState,
 
