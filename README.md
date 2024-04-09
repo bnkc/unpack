@@ -33,7 +33,7 @@ To achieve those, **PyPrune**:
 
 
 
-## Example Output
+## Demo
 
 ```
  📦 Unused Packages
