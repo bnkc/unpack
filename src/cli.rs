@@ -6,15 +6,15 @@ use crate::project_assets::PackageState;
 
 #[derive(Parser)]
 #[command(
-    name = "pyprune",
+    name = "unpack",
     version,
-    about = "PyPrune is a simple, fast and user-friendly tool to analyze python project packaging.",
-    after_long_help = "Bugs can be reported on GitHub: https://github.com/bnkc/pyprune/issues",
+    about = "Unpack is a simple, fast and user-friendly tool to analyze python project packaging.",
+    after_long_help = "Bugs can be reported on GitHub: https://github.com/bnkc/unpack/issues",
     max_term_width = 98
 )]
 pub struct Opts {
-    /// Change the working directory of pyprune to a provided path.
-    /// This means that pyprune will search for unused packages with
+    /// Change the working directory of unpack to a provided path.
+    /// This means that unpack will search for unused packages with
     /// respect to the given `base` path.
     /// Note: If the base path provided does not contain a `poetry.toml`, or
     /// `requirements.txt` within the root of the path provided, operation will exit.

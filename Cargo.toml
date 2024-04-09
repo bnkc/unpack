@@ -1,16 +1,16 @@
 [package]
-name = "pyprune"
+name = "unpack"
 version = "0.1.0"
 authors = ["Lev Ostatnigrosh <levostatnigrosh@pm.me>"]
-homepage = "https://github.com/bnkc/pyprune"
-keywords = ["python", "prune", "dependency", "tool"]
-description = "pyprune is a simple, fast and user-friendly tool to analyze python project packaging."
+homepage = "https://github.com/bnkc/unpack"
+keywords = ["python", "unpack", "dependency", "tool"]
+description = "Unpack is a simple, fast and user-friendly tool to analyze python project packaging."
 categories = ["command-line-utilities"]
 edition = "2021"
 exclude = ["/benchmarks/*"]
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/bnkc/pyprune"
+repository = "https://github.com/bnkc/unpack"
 rust-version = "1.76.0"
 
 

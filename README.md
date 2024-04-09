@@ -1,21 +1,21 @@
-<img src="https://github.com/bnkc/pyprune/blob/main/logo.svg" alt="Logos logo" width="250" align="right">
+<img src="https://github.com/bnkc/unpack/blob/main/logo.svg" alt="Logos logo" width="250" align="right">
 
-# PyPrune
+# Unpack
 
-[![CI](https://github.com/bnkc/pyprune/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bnkc/pyprune/actions/workflows/ci.yml)
+[![CI](https://github.com/bnkc/unpack/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bnkc/unpack/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 <!-- [![Crates.io version shield](https://img.shields.io/crates/v/logos.svg)](https://crates.io/crates/logos) -->
 <!-- [![Docs](https://docs.rs/logos/badge.svg)](https://docs.rs/logos) -->
 
-_Prune unused packages from your python project and more._
+_Unpack python packages from your python project and more._
 
-**PyPrune** has a few goals:
+**Unpack** has a few goals:
 
 + To easily navigate and remove used, unused, and untracked python packages.
 + To quickly identify disk usage of packages in the above categories. 
 + To view the relationship between various packages and their dependencies. 
 
-To achieve those, **PyPrune**:
+To achieve those, **Unpack**:
 
 + Collects all project imports by walking the [abstract syntax tree](https://en.wikipedia.org/wiki/Abstract_syntax_tree).
 + Collects all declared dependencies from the [dependency specification file](https://peps.python.org/pep-0508/).
@@ -47,7 +47,7 @@ To achieve those, **PyPrune**:
  💽 Total disk space: 58.9 MiB
 
  Note: There might be false-positives.
-       For example, PyPrune cannot detect usage of packages that are not imported under `[tool.poetry.*]`.
+       For example, unpack cannot detect usage of packages that are not imported under `[tool.poetry.*]`.
        Similarly, it can only detect declared packages in requirements.txt or pyproject.toml.
 ```
 <!-- 

@@ -22,7 +22,7 @@ fn main() {
             exit_code.exit();
         }
         Err(err) => {
-            eprintln!("[pyprune error]: {:#}", err);
+            eprintln!("[unpack error]: {:#}", err);
             ExitCode::GeneralError.exit();
         }
     }
