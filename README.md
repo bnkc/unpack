@@ -1,8 +1,8 @@
-<!-- <img src="https://github.com/bnkc/pyprune/blob/main/prune.svg" alt="Logos logo" width="250" align="right"> -->
+<img src="https://github.com/bnkc/pyprune/blob/main/prune.svg" alt="Logos logo" width="250" align="right">
 
 # PyPrune
 
-![CI](https://github.com/bnkc/pyprune/actions/workflows/ci.yml/badge.svg?branch=main)
+[![CI](https://github.com/bnkc/pyprune/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bnkc/pyprune/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 <!-- [![Crates.io version shield](https://img.shields.io/crates/v/logos.svg)](https://crates.io/crates/logos) -->
 <!-- [![Docs](https://docs.rs/logos/badge.svg)](https://docs.rs/logos) -->
