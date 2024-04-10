@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::cli::{Env, OutputKind};
+use crate::cli::{DepType, Env, OutputKind};
 use crate::project_assets::PackageState;
 
 pub struct Config {
@@ -14,6 +14,10 @@ pub struct Config {
     /// The path to the dependency specification file.
     /// Ex: `requirements.txt` or `pyproject.toml`
     pub dep_spec_file: PathBuf,
+
+    /// The type of dependency file you would like to use for analysis (If more than one available)
+    /// Defaults to pyproject.toml
+    pub dep_type: DepType,
 
     /// Whether to ignore hidden files and directories (or not).
     pub ignore_hidden: bool,
