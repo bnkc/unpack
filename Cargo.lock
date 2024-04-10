@@ -601,29 +601,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "py-unpack"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytesize",
- "clap",
- "fs_extra",
- "glob",
- "ignore",
- "log",
- "regex",
- "rustpython-ast",
- "rustpython-parser",
- "serde",
- "serde_json",
- "tabled",
- "tempfile",
- "toml",
- "toml_edit",
- "walkdir",
-]
-
-[[package]]
 name = "quote"
 version = "1.0.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -965,6 +942,29 @@ dependencies = [
  "serde_spanned",
  "toml_datetime",
  "winnow",
+]
+
+[[package]]
+name = "un-pack"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytesize",
+ "clap",
+ "fs_extra",
+ "glob",
+ "ignore",
+ "log",
+ "regex",
+ "rustpython-ast",
+ "rustpython-parser",
+ "serde",
+ "serde_json",
+ "tabled",
+ "tempfile",
+ "toml",
+ "toml_edit",
+ "walkdir",
 ]
 
 [[package]]
