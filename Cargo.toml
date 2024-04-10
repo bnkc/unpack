@@ -1,5 +1,5 @@
 [package]
-name = "unpack"
+name = "py-unpack"
 version = "0.1.0"
 authors = ["Lev Ostatnigrosh <levostatnigrosh@proton.me>"]
 homepage = "https://github.com/bnkc/unpack"
