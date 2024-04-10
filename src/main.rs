@@ -44,27 +44,18 @@ fn construct_config(opts: Opts) -> Result<Config> {
     let base_directory = &opts.base_directory;
     let dep_type = opts.dep_type;
     let dep_files = get_dependency_spec_files(base_directory)?;
-    let dep_spec_file: PathBuf;
-    match dep_type {
-        DepType::Pip => {
-            dep_spec_file = dep_files
-                .iter()
-                .find(|file| file.ends_with("requirements.txt"))
-                .ok_or_else(|| {
-                    anyhow!("Could not find `requirements.txt` in the provided directory.")
-                })?
-                .to_owned();
-        }
-        DepType::Poetry => {
-            dep_spec_file = dep_files
-                .iter()
-                .find(|file| file.ends_with("pyproject.toml"))
-                .ok_or_else(|| {
-                    anyhow!("Could not find `pyproject.toml` in the provided directory.")
-                })?
-                .to_owned();
-        }
-    }
+    let dep_spec_file = match opts.dep_type {
+        DepType::Pip => dep_files
+            .iter()
+            .find(|file| file.ends_with("requirements.txt"))
+            .ok_or_else(|| anyhow!("Could not find `requirements.txt` in the provided directory."))?
+            .to_owned(),
+        DepType::Poetry => dep_files
+            .iter()
+            .find(|file| file.ends_with("pyproject.toml"))
+            .ok_or_else(|| anyhow!("Could not find `pyproject.toml` in the provided directory."))?
+            .to_owned(),
+    };
 
     let ignore_hidden = opts.ignore_hidden;
     let output = opts.output;

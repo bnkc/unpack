@@ -93,7 +93,7 @@ impl DependencyCollector {
                     );
                 }
             }
-            // Ignore other types for now...
+
             _ => (),
         }
     }
@@ -114,7 +114,6 @@ fn get_pip_dependencies(dep_spec_file: &Path) -> Result<HashSet<Dependency>> {
             );
         }
     }
-    println!("Found {:#?} dependencies", dependencies);
 
     Ok(dependencies)
 }
@@ -152,6 +151,7 @@ mod tests {
     use std::io::Write;
     use std::path::PathBuf;
     use tempfile::tempdir;
+    // Requirements.txt still need tested
 
     /// Helper function to create a temporary pyproject.toml file.
     fn create_pyproject_toml_file(dir: &tempfile::TempDir, content: &str) -> PathBuf {
