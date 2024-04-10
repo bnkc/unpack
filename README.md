@@ -78,6 +78,46 @@ cargo install un-pack --locked
 
 
 
+> [!NOTE]
+> There are scenarios where using `Unpack` can yield false positives. Mapping `site-packages` to their corresponding
+> dependencies/imports are not always a 1:1 relationship. For Example: `scikit-learn` is imported as `sklearn`.
+> Alot of decisions were made based on [PEP](https://peps.python.org/pep-0566/)
+
+### Command-line options
+
+This is the output of `un-pack -h`. To see the full set of command-line options, use `fd --help` which
+also includes a much more detailed help text.
+
+```
+Usage: un-pack [OPTIONS]
+
+Options:
+  -b, --base-directory <BASE_DIRECTORY>
+          The path to the directory to search for Python files. [default: .]
+  -s, --package-status <STATUS>
+          Select the packages status to search for [default: unused] [possible values: used,
+          unused, untracked]
+  -i, --ignore-hidden
+          Ignore hidden files and directories.
+  -d, --max-depth <DEPTH>
+          Set maximum search depth (default: none)
+  -o, --output <OUTPUT>
+          The output format to use allows for the selection of the output format for the results
+          of the unused packages search. The default output format is `human`. The `json` format
+          is also available [default: human] [possible values: human, json]
+  -t, --dep-type <DEP_TYPE>
+          Select the depencency specification file of choice if more than one exists. By default,
+          `pyproject.toml` is selected [default: poetry] [possible values: pip, poetry]
+  -h, --help
+          Print help (see more with '--help')
+  -V, --version
+          Print version
+```
+
+
+
+
+
 <!-- 
 ## How fast?
 
