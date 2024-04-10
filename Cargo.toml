@@ -1,7 +1,7 @@
 [package]
 name = "unpack"
 version = "0.1.0"
-authors = ["Lev Ostatnigrosh <levostatnigrosh@pm.me>"]
+authors = ["Lev Ostatnigrosh <levostatnigrosh@proton.me>"]
 homepage = "https://github.com/bnkc/unpack"
 keywords = ["python", "unpack", "dependency", "tool"]
 description = "Unpack is a simple, fast and user-friendly tool to analyze python project packaging."
