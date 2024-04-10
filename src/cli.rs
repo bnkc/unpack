@@ -74,6 +74,18 @@ pub struct Opts {
         long_help
     )]
     pub output: OutputKind,
+
+    /// Select the depencency specification file of choice if more than one exists.
+    /// By default, `pyproject.toml` is selected
+    #[arg(
+        long,
+        short = 't',
+        value_name("DEP_TYPE"),
+        default_value("poetry"),
+        value_enum,
+        long_help
+    )]
+    pub dep_type: DepType,
 }
 
 impl Opts {
@@ -97,4 +109,12 @@ pub enum OutputKind {
     Human,
     /// JSON output format.
     Json,
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug)]
+pub enum DepType {
+    /// requirements.txt
+    Pip,
+    /// pyproject.toml
+    Poetry,
 }

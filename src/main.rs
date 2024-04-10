@@ -11,9 +11,11 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 
-use crate::cli::{Env, Opts};
+use crate::cli::{DepType, Env, Opts};
 use crate::config::Config;
 use crate::exit_codes::ExitCode;
+
+const DEP_SPEC_FILES: [&str; 2] = ["requirements.txt", "pyproject.toml"];
 
 fn main() {
     let result = run();
@@ -40,13 +42,28 @@ fn run() -> Result<ExitCode> {
 
 fn construct_config(opts: Opts) -> Result<Config> {
     let base_directory = &opts.base_directory;
-    let dep_spec_file = get_dependency_specification_file(base_directory)?;
+    let dep_type = opts.dep_type;
+    let dep_files = get_dependency_spec_files(base_directory)?;
+    let dep_spec_file = match opts.dep_type {
+        DepType::Pip => dep_files
+            .iter()
+            .find(|file| file.ends_with("requirements.txt"))
+            .ok_or_else(|| anyhow!("Could not find `requirements.txt` in the provided directory."))?
+            .to_owned(),
+        DepType::Poetry => dep_files
+            .iter()
+            .find(|file| file.ends_with("pyproject.toml"))
+            .ok_or_else(|| anyhow!("Could not find `pyproject.toml` in the provided directory."))?
+            .to_owned(),
+    };
+
     let ignore_hidden = opts.ignore_hidden;
     let output = opts.output;
     let max_depth = opts.max_depth();
     Ok(Config {
         base_directory: base_directory.to_owned(),
         dep_spec_file,
+        dep_type,
         ignore_hidden,
         max_depth,
         env: Env::Dev,
@@ -55,22 +72,26 @@ fn construct_config(opts: Opts) -> Result<Config> {
     })
 }
 
-const DEP_SPEC_FILES: [&str; 2] = ["requirements.txt", "pyproject.toml"];
+pub fn get_dependency_spec_files(base_dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
 
-pub fn get_dependency_specification_file(base_dir: &Path) -> Result<PathBuf> {
-    let file = base_dir.ancestors().find_map(|dir| {
-        DEP_SPEC_FILES
-            .into_iter()
-            .map(|file_name| dir.join(file_name))
-            .find(|file_path| file_path.exists())
-    });
+    for dir in base_dir.ancestors() {
+        for file_name in DEP_SPEC_FILES.iter() {
+            let file_path = dir.join(file_name);
+            if file_path.exists() {
+                files.push(file_path);
+            }
+        }
+    }
 
-    file.ok_or_else(|| {
-        anyhow!(format!(
+    if files.is_empty() {
+        Err(anyhow!(format!(
             "Could not find `Requirements.txt` or `pyproject.toml` in '{}' or any parent directory",
             env::current_dir().unwrap().to_string_lossy()
-        ))
-    })
+        )))
+    } else {
+        Ok(files)
+    }
 }
 
 fn set_working_dir(config: &Config) -> Result<()> {

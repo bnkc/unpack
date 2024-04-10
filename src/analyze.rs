@@ -109,7 +109,7 @@ pub fn scan(config: Config) -> Result<ExitCode> {
     let mut outcome = Outcome::default();
     let imports = get_imports(&config).context("Failed to get imports from the project.")?;
 
-    let dependencies = get_dependencies(&config.dep_spec_file)
+    let dependencies = get_dependencies(&config)
         .context("Failed to get dependencies from the dependency specification file.")?;
 
     let site_packages = get_site_packages().context("Failed to get site packages.")?;

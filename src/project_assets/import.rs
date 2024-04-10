@@ -130,7 +130,7 @@ mod tests {
     use std::io::Write;
     use tempfile::tempdir;
 
-    use crate::cli::{Env, OutputKind};
+    use crate::cli::{DepType, Env, OutputKind};
     use crate::project_assets::PackageState;
 
     /// Helper function to create a Python file in the temporary directory.
@@ -151,6 +151,7 @@ mod tests {
             dep_spec_file: PathBuf::new(),
             env: Env::Test,
             output: OutputKind::Human,
+            dep_type: DepType::Poetry,
         }
     }
 

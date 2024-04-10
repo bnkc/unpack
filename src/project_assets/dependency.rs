@@ -10,6 +10,9 @@ use std::str;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::cli::DepType;
+use crate::config::Config;
+
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone, Eq, Hash)]
 pub struct Dependency {
     id: String,
@@ -90,16 +93,34 @@ impl DependencyCollector {
                     );
                 }
             }
-            // Ignore other types for now...
+
             _ => (),
         }
     }
 }
 
-/// This function reads a TOML file at the specified path and returns a HashSet of Dependency structs.
-pub fn get_dependencies(path: &Path) -> Result<HashSet<Dependency>> {
-    let toml_str = fs::read_to_string(path)
-        .with_context(|| format!("Failed to read TOML file at {:?}", path))?;
+fn get_pip_dependencies(dep_spec_file: &Path) -> Result<HashSet<Dependency>> {
+    let file_content = fs::read_to_string(dep_spec_file)
+        .with_context(|| format!("Failed to read file at {:?}", dep_spec_file))?;
+
+    let mut dependencies = HashSet::new();
+    for line in file_content.lines() {
+        let parts: Vec<&str> = line.split("==").collect();
+        if parts.len() == 2 {
+            dependencies.insert(
+                DependencyBuilder::new(parts[0].to_string())
+                    .version(parts[1].to_string())
+                    .build(),
+            );
+        }
+    }
+
+    Ok(dependencies)
+}
+
+fn get_poetry_dependencies(dep_spec_file: &Path) -> Result<HashSet<Dependency>> {
+    let toml_str = fs::read_to_string(dep_spec_file)
+        .with_context(|| format!("Failed to read TOML file at {:?}", dep_spec_file))?;
 
     let toml_value: toml::Value =
         toml::from_str(&toml_str).with_context(|| "Failed to parse TOML content")?;
@@ -113,6 +134,14 @@ pub fn get_dependencies(path: &Path) -> Result<HashSet<Dependency>> {
     Ok(collector.dependencies)
 }
 
+/// This function reads a TOML file at the specified path and returns a HashSet of Dependency structs.
+pub fn get_dependencies(config: &Config) -> Result<HashSet<Dependency>> {
+    match config.dep_type {
+        DepType::Pip => get_pip_dependencies(&config.dep_spec_file),
+        DepType::Poetry => get_poetry_dependencies(&config.dep_spec_file),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,6 +149,7 @@ mod tests {
     use std::io::Write;
     use std::path::PathBuf;
     use tempfile::tempdir;
+    // Requirements.txt still need tested
 
     /// Helper function to create a temporary pyproject.toml file.
     fn create_pyproject_toml_file(dir: &tempfile::TempDir, content: &str) -> PathBuf {
@@ -155,7 +185,7 @@ mod tests {
         );
 
         let dependencies =
-            get_dependencies(toml_path.as_path()).expect("Failed to get dependencies");
+            get_poetry_dependencies(toml_path.as_path()).expect("Failed to get dependencies");
 
         assert!(dependencies.contains(&Dependency {
             id: "package_a".to_string(),
@@ -183,7 +213,7 @@ mod tests {
         );
 
         let dependencies =
-            get_dependencies(toml_path.as_path()).expect("Failed to get dependencies");
+            get_poetry_dependencies(toml_path.as_path()).expect("Failed to get dependencies");
 
         assert!(dependencies.contains(&Dependency {
             id: "package_c".to_string(),
@@ -206,7 +236,7 @@ mod tests {
         );
 
         let dependencies =
-            get_dependencies(toml_path.as_path()).expect("Failed to get dependencies");
+            get_poetry_dependencies(toml_path.as_path()).expect("Failed to get dependencies");
 
         assert!(dependencies.is_empty());
     }
@@ -228,7 +258,7 @@ mod tests {
         );
 
         let dependencies =
-            get_dependencies(toml_path.as_path()).expect("Failed to get dependencies");
+            get_poetry_dependencies(toml_path.as_path()).expect("Failed to get dependencies");
 
         assert!(dependencies.contains(&Dependency {
             id: "fastapi".to_string(),
@@ -252,7 +282,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let toml_path = create_pyproject_toml_file(&temp_dir, "invalid toml content");
 
-        let result = get_dependencies(toml_path.as_path());
+        let result = get_poetry_dependencies(toml_path.as_path());
         assert!(result.is_err());
     }
 }
