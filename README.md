@@ -33,28 +33,52 @@ To achieve those, **Unpack**:
 
 
 
-## Demo
+## Usage
 
 ```
+❯ un-pack
+
  📦 Unused Packages
 
  package      | version      | size     
 --------------+--------------+----------
- scikit-learn | ^1.4.1.post1 | 46.9 MiB 
- keras        | ^3.0.5       | 8.8 MiB  
- pydantic     | ^1.9.0       | 3.1 MiB  
+ scikit-learn | ^1.4.1.post1 | 33.2 MiB 
+ pydantic     | ^1.9.0       | 7.2 MiB  
+ keras        | ^3.0.5       | 3.9 MiB  
 
- 💽 Total disk space: 58.9 MiB
+ 💽 Total disk space: 44.3 MiB
 
  Note: There might be false-positives.
-       For example, unpack cannot detect usage of packages that are not imported under `[tool.poetry.*]`.
+       For example, Unpack cannot detect usage of packages that are not imported under `[tool.poetry.*]`.
        Similarly, it can only detect declared packages in requirements.txt or pyproject.toml.
 ```
-<!-- 
-For more examples and documentation, please refer to the
-[Logos handbook](https://maciejhirsz.github.io/logos/) or the
-[crate documentation](https://docs.rs/logos/latest/logos/).
 
+## Installation
+
+### On macOS
+
+You can install `fd` with [Homebrew](https://formulae.brew.sh/formula/fd):
+```
+brew install ...
+```
+
+… or with MacPorts:
+```
+sudo port install ..
+```
+
+
+
+### On crates.io
+
+```
+cargo install un-pack --locked
+```
+
+
+
+
+<!-- 
 ## How fast?
 
 Ridiculously fast!
