@@ -136,12 +136,10 @@ fn get_poetry_dependencies(dep_spec_file: &Path) -> Result<HashSet<Dependency>> 
 
 /// This function reads a TOML file at the specified path and returns a HashSet of Dependency structs.
 pub fn get_dependencies(config: &Config) -> Result<HashSet<Dependency>> {
-    let dependencies = match config.dep_type {
+    match config.dep_type {
         DepType::Pip => get_pip_dependencies(&config.dep_spec_file),
         DepType::Poetry => get_poetry_dependencies(&config.dep_spec_file),
-    };
-
-    dependencies
+    }
 }
 
 #[cfg(test)]

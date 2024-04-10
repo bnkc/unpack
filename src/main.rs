@@ -62,7 +62,7 @@ fn construct_config(opts: Opts) -> Result<Config> {
     let max_depth = opts.max_depth();
     Ok(Config {
         base_directory: base_directory.to_owned(),
-        dep_spec_file: dep_spec_file,
+        dep_spec_file,
         dep_type,
         ignore_hidden,
         max_depth,
