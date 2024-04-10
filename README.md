@@ -57,7 +57,7 @@ To achieve those, **Unpack**:
 
 ### On macOS
 
-You can install `fd` with [Homebrew](https://formulae.brew.sh/formula/fd):
+You can install `unpack` with [Homebrew](https://formulae.brew.sh/formula/unpack):
 ```
 brew install ...
 ```
@@ -85,7 +85,7 @@ cargo install un-pack --locked
 
 ### Command-line options
 
-This is the output of `un-pack -h`. To see the full set of command-line options, use `fd --help` which
+This is the output of `un-pack -h`. To see the full set of command-line options, use `un-pack --help` which
 also includes a much more detailed help text.
 
 ```
