@@ -58,16 +58,16 @@ To achieve those, **Unpack**:
 
 ### On macOS
 
-You can install `unpack` with [Homebrew](https://formulae.brew.sh/formula/unpack):
+You can install `unpack` with Homebrew
 ```
-brew install ...
+$ brew tap bnkc/tap
+$ brew install unpack
 ```
 
 … or with MacPorts:
 ```
-sudo port install ..
+sudo port install [COMING SOON]
 ```
-
 
 
 ### On crates.io
