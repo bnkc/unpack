@@ -60,8 +60,8 @@ To achieve those, **Unpack**:
 
 You can install `unpack` with Homebrew
 ```
-$ brew tap bnkc/tap
-$ brew install unpack
+brew tap bnkc/tap
+brew install unpack
 ```
 
 … or with MacPorts:
