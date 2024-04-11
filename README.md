@@ -53,6 +53,7 @@ To achieve those, **Unpack**:
        For example, Unpack cannot detect usage of packages that are not imported under `[tool.poetry.*]`.
        Similarly, it can only detect declared packages in requirements.txt or pyproject.toml.
 ```
+For more documentation, please refer to the unpack [crate documentation](https://crates.io/crates/un-pack)
 
 ## Installation
 
