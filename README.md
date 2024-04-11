@@ -37,7 +37,7 @@ To achieve those, **Unpack**:
 ## Usage
 
 ```
-❯ un-pack
+❯ unpack
 
  📦 Unused Packages
 
