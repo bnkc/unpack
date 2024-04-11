@@ -1,4 +1,4 @@
-<img src="https://github.com/bnkc/unpack/blob/main/logo.svg" alt="Logos logo" width="250" align="right">
+<img src="https://github.com/bnkc/unpack/blob/main/logo.svg" width="250" align="right">
 
 # Unpack
 
