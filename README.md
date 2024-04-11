@@ -87,7 +87,7 @@ cargo install un-pack --locked
 > [!WARNING]
 > There are scenarios where using `Unpack` can yield false positives. Mapping `site-packages` to their corresponding
 > dependencies/imports are not always a 1:1 relationship. For Example: `scikit-learn` is imported as `sklearn`.
-> Alot of decisions were made based on [Metadata for Python Software Packages]([https://peps.python.org/pep-0566/](https://packaging.python.org/en/latest/specifications/core-metadata/#core-metadata))
+> Alot of decisions were made based on [Metadata for Python Software Packages](https://packaging.python.org/en/latest/specifications/core-metadata/#core-metadata)
 
 ### Command-line options
 
