@@ -23,6 +23,14 @@ To achieve those, **Unpack**:
 + Identifies local site-package dependencies as to not accidently remove actively used dependencies of other packages.
 + Calculates package(s) size, and total disk usage.
 
+
+> [!NOTE]
+> Unpack started as an exercise to learn Rust. If you are a [rustacean](https://rustacean.net/), you'll find an abundance of
+> bugs, defects, and bottlenecks. If you come across anything, please open an [issue](https://github.com/bnkc/unpack/issues)
+> so I can learn and grow. Thanks!
+
+
+
 ### Package States
 
 + `-used` is when the package is locally installed, one of it's aliases is actively used in the project, and a corresponding dependency is declared in `pyproject.toml` or `requirements.txt`. This state indicates a fully integrated and properly managed package.
@@ -76,12 +84,10 @@ cargo install un-pack --locked
 ```
 
 
-
-
-> [!NOTE]
+> [!WARNING]
 > There are scenarios where using `Unpack` can yield false positives. Mapping `site-packages` to their corresponding
 > dependencies/imports are not always a 1:1 relationship. For Example: `scikit-learn` is imported as `sklearn`.
-> Alot of decisions were made based on [PEP](https://peps.python.org/pep-0566/)
+> Alot of decisions were made based on [Metadata for Python Software Packages](https://peps.python.org/pep-0566/)
 
 ### Command-line options
 
