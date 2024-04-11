@@ -124,36 +124,9 @@ Options:
           Print version
 ```
 
-
-
-
-
-<!-- 
-## How fast?
-
-Ridiculously fast!
-
-```norust
-test identifiers                       ... bench:         647 ns/iter (+/- 27) = 1204 MB/s
-test keywords_operators_and_punctators ... bench:       2,054 ns/iter (+/- 78) = 1037 MB/s
-test strings                           ... bench:         553 ns/iter (+/- 34) = 1575 MB/s
-```
-
-## Acknowledgements
-
-+ [Pedrors](https://pedrors.pt/) for the **Logos** logo.
-
 ## Thank you
 
-**Logos** is very much a labor of love. If you find it useful, consider
-[getting me some coffee](https://github.com/sponsors/maciejhirsz). ☕
+**Unpack** is very much a labor of love. There's alot of improvements
+that could be done, but if you find this project useful, PM me!
 
-If you'd like to contribute to Logos, then consider reading the
-[Contributing guide](https://maciejhirsz.github.io/logos/contributing).
-
-## License
-
-This code is distributed under the terms of both the MIT license
-and the Apache License (Version 2.0), choose whatever works for you.
-
-See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT) for details. -->
+If you'd like to contribute to Unpack, please open an issue/PR ❤️
