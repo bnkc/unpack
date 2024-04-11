@@ -1,6 +1,6 @@
 [package]
 name = "un-pack"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Lev Ostatnigrosh <levostatnigrosh@proton.me>"]
 homepage = "https://github.com/bnkc/unpack"
 keywords = ["python", "unpack", "dependency", "tool"]
