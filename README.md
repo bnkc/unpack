@@ -24,13 +24,6 @@ To achieve those, **Unpack**:
 + Calculates package(s) size, and total disk usage.
 
 
-> [!NOTE]
-> Unpack started as an exercise to learn Rust. If you are a [rustacean](https://rustacean.net/), you'll find an abundance of
-> bugs, defects, and bottlenecks. If you come across anything, please open an [Issue](https://github.com/bnkc/unpack/issues)
-> so I can learn and grow. Thanks!
-
-
-
 ### Package States
 
 + `-used` is when the package is locally installed, one of it's aliases is actively used in the project, and a corresponding dependency is declared in `pyproject.toml` or `requirements.txt`. This state indicates a fully integrated and properly managed package.
