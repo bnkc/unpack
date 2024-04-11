@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/bnkc/unpack/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bnkc/unpack/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-<!-- [![Crates.io version shield](https://img.shields.io/crates/v/logos.svg)](https://crates.io/crates/logos) -->
+[![Crates.io version shield](https://img.shields.io/crates/v/logos.svg)]([https://crates.io/crates/logos](https://crates.io/crates/un-pack))
 <!-- [![Docs](https://docs.rs/logos/badge.svg)](https://docs.rs/logos) -->
 
 _Unpack python packages from your project and more._
