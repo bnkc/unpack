@@ -82,7 +82,11 @@ sudo port install ..
 ```
 cargo install un-pack --locked
 ```
-
+Alternatively, you can install `unpack` directly from the repository by using:
+```
+git clone https://github.com/bnkc/unpack
+cargo install --path ./unpack
+```
 
 > [!WARNING]
 > There are scenarios where using `Unpack` can yield false positives. Mapping `site-packages` to their corresponding
